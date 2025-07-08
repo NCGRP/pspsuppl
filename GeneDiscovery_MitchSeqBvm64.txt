@@ -1,0 +1,150 @@
+### BEGIN FST MONO VS MULTIGERM ###
+
+#annual v biennial is difficult due to inconsistent phenotyping. mono vs multigerm
+#seems better.  i have assigned scores based on the 'Note' field and 'Doney's list all' sections,
+#from the file Key_Sequenced-ARSreleases_2020.xlsx, deferring to Doney's phenotype when
+#the verbal 'Note' expresses uncertainty (e.g. Mm as opposed to MM or mm).  Phenotypes 
+#saved in file MitchSeqSigOfSelection
+
+#The 'monogerm' accessions are (23):
+mono="SRR12806854 SRR12806852 SRR12806853 SRR12806844 SRR13204008 SRR10192982 SRR12806894 SRR12806895 SRR13204014 SRR12806872 SRR12806855 SRR12806843 SRR13203980 SRR13204012 SRR13203981 SRR13204011 SRR12806871 SRR12806862 SRR12806859 SRR12806848 SRR10224911 SRR13203999 SRR12806817";
+
+#The 'multigerm' accessions are (77):
+multi="SRR12806810 SRR12806847 SRR12806846 SRR12806845 SRR12806842 SRR12806839 SRR13204010 SRR10224916 SRR13204009 SRR13204007 SRR13204006 SRR13204005 SRR12806836 SRR12806834 SRR13204004 SRR13204003 SRR13204001 SRR10224872 SRR13204000 SRR13203998 SRR12806822 SRR12806819 SRR12806818 SRR12806884 SRR12806833 SRR12806820 SRR13204002 SRR12806892 SRR12806893 SRR12806890 SRR12806891 SRR12806889 SRR12806887 SRR13203990 SRR13203979 SRR13203978 SRR12806885 SRR12806886 SRR10192978 SRR12806883 SRR13203975 SRR13203974 SRR12806882 SRR12806881 SRR12806880 SRR13203973 SRR13203972 SRR12806879 SRR12806878 SRR13203991 SRR12806877 SRR12806876 SRR12806875 SRR12806874 SRR12806873 SRR12806870 SRR12806861 SRR10224902 SRR10224903 SRR12806860 SRR12806857 SRR12806858 SRR10224904 SRR10224899 SRR10224901 SRR12806856 SRR12806850 SRR12806851 SRR10192991 SRR10224905 SRR10224906 SRR12806837 SRR12806825 SRR12806816 SRR13203989 SRR13203988 SRR12806863";
+
+
+#create a --sample-group-merge-table for grenedalf so you don't have to merge and remap
+cd /90daydata/patellifolia/MitchSeq/bamscaf; #on atlas
+echo "$mono" | tr ' ' '\n' | sed 's/$/,mono/' > zOUgrouptable.txt; #include all monogerm accessions
+echo "$multi"  | tr ' ' '\n' | sed 's/$/,multi/' >> zOUgrouptable.txt; #include all multigerm accessions
+
+#create a pool sizes table
+echo 'mono,1150
+multi,3850' > zOUpoolsizes.txt
+
+#calculate Fst at every position in genome
+cd /90daydata/patellifolia/MitchSeq/bamscaf; #on atlas
+b=$(cut -d, -f1 zOUgrouptable.txt | sed 's/$/.bam/' | tr '\n' ' '); #list of all bam files involved in comparison
+p=monomultiBvWIP2; #file prefix
+sbatch --job-name="gdalffst" -p atlas --account=patellifolia \
+       -N 1 -n 48 -t 4-00:00:00 -e "stderr.%j.%N.%A.%a" \
+       --wrap="echo $b 1>&2; \
+               time grenedalf fst \
+                   --sam-path $b \
+                   --reference-genome-fai /project/patellifolia/Bvulgaris/refgenomes/EL10.2.fa.fai \
+                   --pool-sizes zOUpoolsizes.txt \
+                   --sample-group-merge-table zOUgrouptable.txt \
+                   --window-type single \
+                   --window-average-policy valid-loci \
+                   --make-gapless \
+                   --filter-sample-min-count 2 \
+                   --filter-sample-min-read-depth 4 \
+                   --filter-sample-max-read-depth 10000 \
+                   --method unbiased-nei \
+                   --allow-file-overwriting \
+                   --verbose \
+                   --threads 48 \
+                   --file-prefix "$p"_fst \
+                   --log-file "$p"_fstlog.txt;
+     "
+#225 min
+
+
+#output file is large, split into chromosomes, remove bp with 'nan' for Fst,
+#reduce to columns 1 (start) and 13 (Fst)
+c="NC_079202.1 NC_079203.1 NC_079204.1 NC_079205.1 NC_079206.1 NC_079207.1 NC_079208.1 NC_079209.1 NC_079210.1";
+time echo "$c" | tr ' ' '\n' | parallel --jobs 9 'grep ^{}, monomultiBvWIP2_fstfst.csv | cut -d, -f2,13 | grep -v ,nan$ > {}_monomulti1bp.csv'; #8 min
+
+#rsync back to nas
+cd /Volumes/Public/Data/PatReeves/MitchSeq/SignatureOfSelection/grenedalf/fst/monomulti;
+time echo "$c" | tr ' ' '\n' | parallel --jobs 9 'rsync -aP pat.reeves@atlas-login.hpc.msstate.edu:"/90daydata/patellifolia/MitchSeq/bamscaf/{}_monomulti1bp.csv" .'; #11 min
+
+#isolate the region that Jung looked at, 1m
+time awk -F, '$1>64123065{print $0}' NC_079205.1_monomulti1bp.csv \
+     | awk -F, '$1<65981738{print $0}' > JungBvWIP2Region.csv; #1039287 SNPs in this region
+
+#create a file with the largest 50K Fst values in the region, plot them in excel
+sort -t, -k2,2nr JungBvWIP2Region.csv | grep -v 'e' | head -50000 > JungBvWIP2Region50Kpts.csv
+
+#get poolseq Fst values for Jung's significant SNPs to perform correlation
+jung="6678584 6678585 64123066 64176761 64176977 64178394 64182434 64286492 64286516 64376435 64376445 64377855 64385923 64398793 64398808 64441132 64491876 64506468 64507040 64507219 64507227 64507279 64507338 64507508 64507627 64507675 64507718 64508050 64508078 64508434 64508532 64508566 64508860 64508974 64509535 64509676 64509700 64511418 64511450 64511453 64511476 64511483 64511503 64511505 64511660 64512372 64512396 64512524 64512782 64514290 64515253 64516775 64528310 64590348 64623925 64624838 64625814 64626929 64626930 64630539 64630540 64630981 64633598 64633602 64633603 64633801 64633926 64634010 64634132 64634327 64747901 64971922 65421467 65737492 65737686 65828691 65981737";
+> FstForJungSites.csv;
+time for i in $jung;
+  do echo $i;
+    grep -m1 ^NC_079205.1,$i,$i, NC_079205.1_monomulti1bp.csv >> FstForJungSites.csv;
+  done;
+#this took 45 min, 72 of 77 sites were present in our data, there looks to be a weak
+#negative correlation between our Fst and Jung's P-value for significant sites. Keep
+#in mind this is a very biased subsample of all sites
+
+
+
+#try to plot the whole chromosome using R
+#After running R plot below, look under a few of the most prominent outlier peaks using the ncbi genome browser
+#NC_079202.1:51130000-51140000  =NADPH-cytochrome P450 reductase
+#NC_079205.1:64590348 <--Jung's monogerm gene BvWIP2, this is his most significant SNP
+#NC_079205.1:64585650-64590798 <--Jung's monogerm gene BvWIP2
+#NC_079206.1:11280000-11300000  =beta-amyrin11 oxidase
+#NC_079206.1:10480000-10510000  =long ncRNA, SKP1, RXLR
+
+
+### BEGIN R ###
+#make plots of pairwise Fst by chromosome 1-7
+#install.packages("scattermore")
+
+library(scattermore)
+library(ggplot2)
+options(error = recover)
+rm(list=ls()) 
+setwd("/Volumes/Public/Data/PatReeves/MitchSeq/SignatureOfSelection/grenedalf/fst/monomulti")
+
+origpar=par() #collect the original settings
+
+#get a list of chromosome names
+chrnames=c("NC_079202.1","NC_079203.1","NC_079204.1","NC_079205.1","NC_079206.1","NC_079207.1","NC_079208.1","NC_079209.1","NC_079210.1")
+
+for (c in chrnames)
+{
+	chr=c
+	print(chr) #print progress to terminal
+	
+	infilename=paste(chr,"_monomulti1bp.csv", sep='')
+	z=strsplit(infilename,split="\\.")
+	fp=unlist(z)[1] #get a brief name for the chromosome
+
+	#read data, there are like 50 million SNPs per chromosome so this takes ~2min
+	system.time(ll<-read.csv(infilename,sep=",",header=TRUE))
+	
+ 	#make plot
+ 	ggsave(paste(fp,".pdf",sep=""), units='in', width=8, height=3,
+ 		ggplot() +
+ 		geom_scattermost(
+     		ll,
+     		pointsize=0,
+     		col="black") +
+   		ggtitle(fp))
+}
+	
+par=origpar #restore the original settings
+		
+### END R ###
+
+
+
+#do some statistics to see how our Fst values rate for gene discovery compared to 
+#Jung's p-values
+
+time wc -l monomultiBvWIP2_fstfst.csv; #3min on NAS, 569269540 SNPs, this is a lot, perhaps I should filter by MAF?
+time cat NC_0792*.1_monomulti1bp.csv > 2colAll.csv; #2m49s, get a single file with all Fst values
+time shuf 2colAll.csv | head -10000 > 2col10Kran.csv; #2m21s
+time cut -d, -f2 2colAll.csv > 1colAll.csv; #7min
+time LC_ALL=C gsort -S 50% --parallel=8 -gr 1colAll.csv > 1colAllsorted.csv; #43min
+rm 1colAll.csv;
+grep -n ^'0.672754'$ 1colAllsorted.csv; #this is the value for Jung SNP NC_079205.1:64590348
+	603:0.672754 <--there is only one such entry, at row 603/569269540
+
+
+
+
+
+### END FST MONO VS MULTIGERM ###

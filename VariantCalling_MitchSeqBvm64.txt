@@ -1,0 +1,248 @@
+### CALL VARIANTS, FREEBAYES ###
+#call variants using freebayes, multicore
+
+
+##run on ceres (faster, ~x days) ##
+#		from https://www.biostars.org/p/63700/#63709,
+#		Eric Garrison comment on how to deal with mixtures
+#		You can also deal with this using a pooled detection approach. freeabyes is capable of this. See: https://groups.google.com/d/topic/freebayes/Q-TFF8ollC4/discussion. In short, you would align as usual and then call using a pipeline of this form:
+#
+#		freebayes -f ref.fa --pooled-discrete --pooled-continuous alignments.bam
+#		The AO (alternate observation count) and RO for each loci are then sufficient to estimate the allele frequency across your heterogenous sample.
+#
+#		For post-analysis you can use clustering algorithms on the observation frequency information to classify calls according to subclone. I'm not familiar with what methods are available to do this.
+
+#from freebayes --help
+#		population model:
+#		   -p --ploidy N   Sets the default ploidy for the analysis to N.  default: 2
+#		   -J --pooled-discrete
+#						   Assume that samples result from pooled sequencing.
+#						   Model pooled samples using discrete genotypes across pools.
+#						   When using this flag, set --ploidy to the number of
+#						   alleles in each sample or use the --cnv-map to define
+#						   per-sample ploidy.
+#		   -K --pooled-continuous
+#						   Output all alleles which pass input filters, regardles of
+#						   genotyping outcome or model.
+#		population priors:
+#
+#		   -k --no-population-priors
+#						   Equivalent to --pooled-discrete --hwe-priors-off and removal of
+#						   Ewens Sampling Formula component of priors.
+#
+#		mappability priors:
+#
+#		   -w --hwe-priors-off
+#						   Disable estimation of the probability of the combination
+#						   arising under HWE given the allele frequency as estimated
+#						   by observation frequency.
+#
+
+
+#polyploid variant calling, takes nn.n days
+#Run as parallelized on contigs using sbatch for contigs >1E6bp
+#these take ~10 hrs per contig at ~34 simultaneous runs on ceres = 26 cycles * 10 hrs/cycle = 260 hrs = 11 days
+
+#sbatch submission
+#here set --max-complex-gap=75 (1/2 the read length) to, it is claimed, call phased variants
+#of some length when multiple polymorphisms appear on the same read.  From github:
+#        << "    FreeBayes is capable of calling variant haplotypes shorter than a read length" << endl
+#        << "    where multiple polymorphisms segregate on the same read.  The maximum distance" << endl
+#        << "    between polymorphisms phased in this way is determined by the" << endl
+#        << "    --max-complex-gap, which defaults to 3bp.  In practice, this can comfortably be" << endl
+#        << "    set to half the read length." << endl
+
+#the bam file was created with 3c088627e51f00f659e30065f46e0674 AZpool_final_purged_primary.fasta,
+#the R631i7 Oklahoma assembly, mislabeled as AZ, not scaffolded with metassembler
+
+
+   -r --region <chrom>:<start_position>-<end_position>
+                   Limit analysis to the specified region, 0-base coordinates,
+                   end_position not included (same as BED format).
+                   Either '-' or '..' maybe used as a separator.
+ctg.000948F_1	1003107	1646006369	1003107	1003108 <-- example contigs
+ctg.000951F_1	1001729	1648983786	1001729	1001730
+
+#move EL10.2 mapped bam files from atlas to ceres
+cd /90daydata/patellifolia/MitchSeq/bam; #on ceres
+time rsync -aP pat.reeves@atlas-dtn.hpc.msstate.edu:"/90daydata/patellifolia/MitchSeq/bam/[BS][vR]*.bam" .; #this transfer is going to take days
+
+
+^^^URHERE, you need a merged bam file, not the individual files, for freebayes
+
+
+
+
+#characterize reference contigs
+cd /home/pat.reeves/patellifolia/Bvulgaris/refgenomes;
+wc -l EL10.2.fa.fai; #20 contigs in all
+wc -l PI540631.fa.fai; #2373 contigs in all
+awk -F$'\t' '$2>999999{print $0}' EL10.2.fa.fai | wc -l; #9 contigs > 1E6 bp, these are the pseudochromosomes
+awk -F$'\t' '$2>999999{print $0}' PI540631.fa.fai | wc -l; #141 contigs > 1E6 bp
+
+#use a slurm array for 9 jobs
+#--mem=96G gives oom errors starting after about 6 hours, try 120G. Use 360G for the few runs that oom with 120
+#most contigs seem to finish within 12 hrs
+
+#create files to organize sbatch array
+module load freebayes/1.3.6;
+v="EL10.2"; #root genome name
+v="PI540631"; #root genome name
+awk -F$'\t' '$2>999999{print $1,$2-1}' "$v".fa.fai | sed 's/ /:0-/' > "$v"_jobarray.slm; #designate range for contigs > 1E6
+mv "$v"_jobarray.slm /90daydata/patellifolia/MitchSeq;
+fasta_generate_regions.py "$v".fa.fai 100000 > "$v"_regions.txt; #create the regions, there are 5700, you will grep for a single contig's regions on each node
+mv "$v"_regions.txt /90daydata/patellifolia/MitchSeq;
+
+
+
+#submit
+cd /90daydata/patellifolia/MitchSeq
+v="PI540631"; #root genome name
+b="PI" #reference genome abbreviation "EL"[10.2] or "PI"[540631], to help locate the merged map file
+r=24N; #ploidy
+
+#cleanup run settings
+sbatch --array 791-792 --job-name="fb24" -p ceres --account=patellifolia \
+            -N 1 -n 18 --mem=360G -t 2-00:00:00 -o "stderr.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
+
+#normal settings:
+sbatch --array 1-9 --job-name="fb24" -p ceres --account=patellifolia \
+sbatch --array 1-2 --job-name="fb24" -p ceres --account=patellifolia \
+            -N 1 -n 12 --mem=240G -t 2-00:00:00 -o "stderr.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
+            --wrap="module load freebayes/1.3.6;
+                    cd /90daydata/patellifolia/MitchSeq
+                    i=\$(head -\${SLURM_ARRAY_TASK_ID} jobarray.slm | tail -1); #get contig range for job
+                    j=\$(echo \$i | cut -d: -f1); #get contig name
+                    k=\$(grep ^\$j":" regions.txt); #list of regions for this contig, to be passed to freebayes-parallel
+                    echo \"\$k\"; #report to log
+                    time(freebayes-parallel <(echo \"\$k\") 12 \
+                              --fasta-reference=/home/pat.reeves/patellifolia/Bvulgaris/refgenomes/"$v".fa \
+                              --bam=bam/"$b"x.merged.bam \
+                              --ploidy 50 --pooled-discrete --hwe-priors-off --pooled-continuous \
+                              --use-best-n-alleles=4 --limit-coverage=10240 \
+                              --use-reference-allele --max-complex-gap=75 \
+                              > bam/"$v"_"$b"x_"$r"_\"\$i\"_fbp.vcf;)
+                   "
+^^^URHERE, edited to here
+
+
+#most runs take ~500 min, look for oom errors:
+cd /90daydata/patellifolia/Hpusillum/WGS/SkimSeq;
+grep oom stderr* | cut -d: -f1 | rev | cut -d. -f1 | rev | tr '\n' ','; #no oom errors with --mem=240G
+
+#if there are oom errors, insert list from above into new sbatch array with increased memory --mem=360G.
+
+#combine vcf files from individual contigs
+mv bam/*.vcf vcf/24N;
+cd vcf/24N;
+
+#confirm the header is the same on all files, ~8 minutes. This has been shown once, so you can probably skip it
+time z=$(for i in OKref_122x_24N_ctg.*.vcf;
+  do echo -n "$i ";
+    grep -B10000000 CHROM "$i" | grep -v '##fileDate=' | grep -v '##commandline=' | md5sum;
+  done;
+);
+echo "$z" | cut -d' ' -f2 | sort | uniq -c;
+
+
+#obtain a generic header for the combined vcf
+h=$(grep -B100000000 CHROM OKref_122x_24N_ctg.000951F_1:0-1001728_fbp.vcf | grep -v '##fileDate=' | grep -v '##commandline=');
+
+#combine the genotype sections of the individual vcf files, in order, serial
+b=$(ls OKref_122x_24N_ctg.*.vcf | sort -t'.' -k2,2n);
+
+fn="OKref_122x_24N_fbp.vcf";
+echo "$h" > "$fn"; #add header to combined file
+n=1;
+time for i in $b;
+  do echo "$n/916 $i";
+    grep -A1000000000 CHROM "$i" | tail -n+2 >> "$fn";
+    n=$(( $n + 1 ));
+  done; #10min, produces a 205GB file
+
+
+#combine the genotype sections of the individual vcf files, in order, parallel (unclear if this is any faster on ceres)
+fn="OKref_122x_24N_fbp.vcf"; export fn;
+echo "$h" > "$fn"; #add header to combined file
+time echo "$b" | parallel --jobs 24 --keep-order --env fn 'grep -A1000000000 CHROM {} | tail -n+2 >> '"$fn";
+
+
+#test whether the combine step worked, or is corrupted
+time col1=$(awk -F$'\t' '{print $1}' "$fn" | uniq); #10min
+col2=$(echo "$col1" | grep -A1000000000 CHROM | sort -u); #this should have exactly 916 distinct contig names
+
+
+#how many variants are recovered from 916 contigs > 1Mbp?
+time grep -A1000000000 CHROM "$fn" | wc -l; #30 min, 32292076 polyploid variants called
+
+##end run on ceres##
+
+
+
+
+#calculate descriptive stats for quality values
+cd /90daydata/patellifolia/Hpusillum/WGS/SkimSeq/vcf/24N;
+grep -m1 -n CHROM OKref_122x_2N_fbp.vcf; #CHROM on line 3261
+
+#calculate quantity and quality stats
+v=OKref;
+b=122;
+r=2N;
+r=24N;
+time cut -d$'\t' -f6 "$v"_"$b"x_"$r"_fbp.vcf | tail -n+3260 | tr '\n' ' ' > a.txt; #list of quality values, 13 min
+time cat a.txt | tr ' ' '\n' | cut -d. -f1 | sort | uniq -c | awk '{$1=$1;print}' | sort -t' ' -k2,2nr > qualdist_"$v"_"$r".txt; #distribution of quality values, 14s
+
+
+awk '{
+  sum = 0;
+  M = 0;
+  S = 0;
+  for (k=1; k <= NF; k++) {
+	sum += $k;
+	x = $k;
+	oldM = M;
+	M = M + ((x - M)/k);
+	S = S + (x - M)*(x - oldM);
+  }
+  var = S/(NF - 1);
+  print "n=" NF " mean=" sum/(NF) " var=" var " sd=" sqrt(var);
+}' < a.txt
+
+<<< $a
+
+
+
+			stats:     n=3362924 mean=3529.22 var=4.59534e+07 sd=6778.89  <--prior Hpusillum GBS study
+			stats:     n=9959293 mean=85.0864 var=7765.61 sd=88.1227      <--1x skimseq, 200N, much lower average quality
+            stats:     n=17660432 mean=68.4018 var=8914.26 sd=94.4154     <--1x skimseq, 2N, much lower average quality
+            stats:     n=39528004 mean=116.166 var=36373.1 sd=190.717     <--3x skimseq, 2N, higher quality than 1x
+            stats:     n=53647520 mean=158.436 var=79009.4 sd=281.086     <--5x skimseq, 2N, higher quality than 1x
+			stats:     n=61899842 mean=207.068 var=152048 sd=389.934      <--5x skimseq, 2N, 14 samples
+			stats:     n=87928395 mean=531.6 var=1.25738e+06 sd=1121.33   <--Hpusillum skimseq, 2N, 50 samples
+			stats:     n=87928395 mean=673.636 var=1.47969e+06 sd=1216.42    <--Hpusillum skimseq, 24N, 50 samples
+			stats:     n=99195857 mean=607.671 var=6.15343e+06 sd=2480.61    <--Hp skimseq + gbs, 2N, 237 samples
+			stats:     n=171805466 mean=472.393 var=4.07986e+06 sd=2019.87   <--Hp skimseq, 2N, 86 samples, inc other species
+			stats:     n=29966534 mean=707.547 var=2.25598e+06 sd=1501.99    <--Hp skimseq, 24N, 86 samples, inc other species
+			stats:     n=197014198 mean=577.931 var=6.79924e+06 sd=2607.54   <--Hp skimseq, 2N, 122 samples, inc other species
+			stats:     n=32292075 mean=916.721 var=4.07897e+06 sd=2019.65    <--Hp skimseq, 24N, 122 samples, inc other species
+
+
+
+
+#back up
+cd /share/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample;
+rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/vcf/qualdist*" .;
+cd /share/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample/vcf;
+rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/vcf/OKref_122x_2N_fbp.vcf" .; #backup to NAS.  This file is ~1TB, don't back it up since it takes only 36 hours to reconstruct.
+
+rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/vcf/24N/qualdist_OKref_24N.txt" .;
+cd /share/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample/vcf/24N;
+rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/vcf/24N/OKref_122x_24N_fbp.vcf" .; #backup to NAS. This file is 200GB, back it up since it takes a week or more to reconstruct
+
+
+
+
+
+
+
+### END CALL VARIANTS, FREEBAYES ###

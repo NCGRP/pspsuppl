@@ -1,0 +1,205 @@
+#Starting 5/8/25
+#use 'grenedalf frequency' to pass SNP frequencies to DAPC for pop structure analysis,
+#Bvm64pool and MitchSeqpools
+
+
+### NOTES ON DAPC ###
+dapc uses no scaling for the pca.  this is weird.  dapc changes missing data to the mean
+of the variable.  in the case of SNPs the mean value equals zero while the reference and
+alternate allele receive values distributed on both sides of zero (one positive, one
+negative).  this is weird.  it could cause samples with lots of missing data to cluster 
+artifactually, see Jombart warning: https://lists.r-forge.r-project.org/pipermail/adegenet-forum/2015-September/001267.html
+### END NOTES ON DAPC ###
+
+
+### CALCULATE ALLELE FREQUENCIES USING GRENEDALF ###
+
+cd /90daydata/patellifolia/MitchSeq/bam; #on atlas
+b=$(cut -d, -f1 zOUgrouptable.txt | sed 's/$/.bam/' | tr '\n' ' '); #list of all bam files involved in comparison
+b=$(ls SRR1*.bam | tr '\n' ' ' | sed 's/ $//'); #all 196 mapped mitchseq data sets
+#b="SRR12806816.bam SRR13203989.bam SRR13203988.bam SRR12806863.bam"; #sample data
+#p=freqtest; #file prefix
+p=ms196; #mitchseq, 196 mapped accessions
+export p;
+sbatch --job-name="gdalffreq" -p atlas --account=patellifolia \
+       -N 1 -n 48 -t 4-00:00:00 -e "stderr.%j.%N.%A.%a" \
+       --wrap="echo $b 1>&2; \
+               time grenedalf frequency \
+                   --sam-path $b \
+                   --reference-genome-fai /project/patellifolia/Bvulgaris/refgenomes/EL10.2.fa.fai \
+                   --make-gapless \
+                   --write-sample-ref-freq \
+                   --allow-file-overwriting \
+                   --verbose \
+                   --threads 48 \
+                   --file-prefix "$p"_freq \
+                   --log-file "$p"_freqlog.txt;
+     "
+
+#for all 196 samples, the result file is 260GB
+
+#filter it to high quality loci
+time wc -l "$p"_freqfrequency.csv; #1:20 min, output has 467277396 lines,
+#remove loci with missing data
+time grep -v nan "$p"_freqfrequency.csv > "$p"_nonan.csv; #6:30 min, 
+wc -l "$p"_nonan.csv; #316035388 lines
+
+
+
+#set a minor allele frequency cutoff, then remove fixed monomorphic sites
+maf=0.95;
+ncol=$(head -1 "$p"_nonan.csv | cut -d, -f5- | tr ',' '\n' | wc -l); #number of samples
+ref1=$(for ((i=1; i<=$ncol; i++)); do echo -n ' 1'; done;) #search pattern for monomorphic ref allele
+alt1=$(for ((i=1; i<=$ncol; i++)); do echo -n ' 0'; done;) #search pattern for monomorphic alt allele
+
+time awk -F, -v maf=$maf '{ for (i=5;i<=NF;i++) if ($i > maf) $i = 1; print }' "$p"_nonan.csv | tr ',' ' ' | grep -v "$ref1"$ > "$p"_nonan"$maf".tmp; #3.5hrs with maf 0.95, needs speeded up
+wc -l "$p"_nonan"$maf".tmp; #44811609 loci
+time awk -F, -v maf=$maf '{ for (i=5;i<=NF;i++) if ($i < 1-maf) $i = 0; print }' "$p"_nonan"$maf".tmp | tr ',' ' ' | grep -v "$alt1"$ > "$p"_nonan"$maf".csv; #11 min with maf 0.95
+wc -l "$p"_nonan"$maf".csv; #44811609 with maf=0.95, this step doesn't remove any loci, here or in pusillum, so maybe pointless
+rm "$p"_nonan"$maf".tmp;
+
+
+^^^URHERE, repeating this in case something got pooched, which would explain the difference I'm seeing
+between the erroneous ' 1 1 1 1$' filter and the correct one above which gives strange results in DAPC.
+--the repeated files are identical so nothing got pooched.  The first run thru 'msb' gave lots of admixture,
+the second, with the "correct" filtering on ' 1 1 1 1$', showed many more exclusive assignments
+
+
+
+
+
+
+
+
+#subsample 50K loci
+header=$(head -1 "$p"_freqfrequency.csv | sed 's/\.FREQ//g' | tr ',' ' ');
+nloci=1000; # x thousand loci
+time shuf "$p"_nonan"$maf".csv | head -"$nloci"000 | sort -t' ' -k1,1 -k2,2n > tmp.txt; #40s
+echo "$header" > tmp1.txt;
+cat tmp.txt >> tmp1.txt;
+rh=$(cut -d' ' -f1-2 tmp1.txt | sed 's/ /\./'); #row header
+paste -d' ' <(echo "$rh") <(cut -d' ' -f5- tmp1.txt) > "$p"_nonan0.95."$nloci"k.csv;
+rm tmp.txt tmp1.txt
+
+#on mini
+cd /Volumes/Public/Data/PatReeves/MitchSeq/GrenedalfToDAPC;
+p="ms196";
+nloci=1000; # x thousand loci
+rsync -aP pat.reeves@atlas-login.hpc.msstate.edu:"/90daydata/patellifolia/MitchSeq/bam/"$p"_nonan0.95."$nloci"k.csv" .;
+
+
+
+
+^^^URHERE
+
+
+### END CALCULATE ALLELE FREQUENCIES USING GRENEDALF ###
+
+
+
+
+
+
+### ITERATE DAPC OVER K ###
+
+### BEGIN R ###
+#install.packages("adegenet")
+#install.packages("polysat")
+#install.packages("rgl")
+library(rgl)
+library(adegenet)
+library(polysat)
+
+options(error = recover)
+rm(list=ls()) 
+origpar=par() #collect the original settings
+par(bg='white') #in case you want to cut and paste from quartz window, otherwise blacked out
+
+#highly constrasting color palette
+c25 <- c("dodgerblue2", "#E31A1C", "green4", "#6A3D9A", "#FF7F00", "black", "gold1", "skyblue2", "#FB9A99", "palegreen2", "#CAB2D6", "#FDBF6F", "gray70", "khaki2", "maroon", "orchid1", "deeppink1", "blue1", "steelblue4", "darkturquoise", "green1", "yellow4", "yellow3", "darkorange4", "brown");
+
+## FUNCTIONS
+
+myDAPC=function(C2) {
+
+	#center the data matrix using scale(), set all NA to 0, as dapc would do 
+	Y <- scale(C2, center = TRUE, scale = FALSE) #dapc centers, but does not scale by default
+	Y[is.na(Y)] = 0 #set all NA to 0
+	
+	#determine some reasonable number of clusters for the data, other than the population designations
+	#this uses Kmeans clustering to assign individuals to genetic clusters, I think it might be
+	#used as a prior. It lets you set the number of clusters based on a plot that minimizes BIC.
+	#Optimal cluster number selection can be automated under various criteria.
+	Ygrp <- find.clusters.matrix(Y,n.pca=10000,max.n.clust=25,method="ward",n.clust=K) #7 looks best for ms196
+		
+	#run dapc
+	Ydapc1<-dapc.matrix(Y,Ygrp$grp,n.da=nda,n.pca=100,scale=sc) #keep 100 PCs, and nda discriminant functions
+	
+	#make the compoplot manually, for better control of labeling
+	pdf(paste(p,nrow(Ydapc1$tab),".K",ncol(Ydapc1$posterior),".",nloci,"K.pdf",sep=""), width=20, height=2, pointsize=7)
+	barplot(t(Ydapc1$posterior), col = sample(c25),
+						   ylab = "membership probability", legend.text=TRUE,
+						   border=NA, 
+						   names.arg=rownames(Ydapc1$posterior), las=3, cex.names=0.6,
+						   width=4, xlim=c(0,1000))
+	dev.off()
+	
+	return(Ydapc1)
+}
+
+
+## MAIN
+
+setwd("/Volumes/Public/Data/PatReeves/MitchSeq/GrenedalfToDAPC")
+p="ms" #prefix for input and output file names
+#p="msb" #data with erroneous ' 1 1 1 1$' filter
+nloci=50 #x thousand loci
+
+
+shrink=FALSE #shrink data set each iteration by removing exclusive assignments (TRUE,FALSE). If TRUE, K is determined automatically
+K=10 #initial K value to consider, only set to integer when shrink==FALSE, otherwise set to K=NULL
+if(shrink==TRUE) {K=NULL} #automatically set K=NULL when shrink=TRUE
+exc=0.99 #value to indicate an exclusive assignment, used when shrink=TRUE
+sc=TRUE #override dapc default and scale the data
+nda=2 #number of discriminant functions to use
+
+
+
+#read in data set in grenedalf allele frequency output format
+#note this transposes the matrix on import
+C <- t(read.table(paste(p,"196_nonan0.95.",nloci,"k.csv",sep=""), header=TRUE, row.names=1, sep=" "))
+
+Ydapc1=myDAPC(C) #initial DAPC run
+
+C2=C #swap variable name to set up for loop
+
+repeat {
+	if (shrink==TRUE) {
+		#iteratively remove rows with exclusive assignments, defined as the presence of a single '1' in the Q matrix
+		toexclude=rownames(Ydapc1$posterior[rowSums(Ydapc1$posterior >= exc) == 1,]) #identify samples assigned to one population with a probability > exc
+		
+		if(length(toexclude)==nrow(Ydapc1$posterior)) { break } #quit if there will be no samples left after the current removal
+		
+		Ctmp=C2[!(row.names(C2) %in% toexclude),] #remove rows
+		C2=Ctmp #update loop variable C2
+	} else if (shrink==FALSE) {
+		K=K-1
+		if(K<2) { break } #quit when K=1
+	}
+		
+	Ydapc1=myDAPC(C2)
+}
+
+### END R ###
+
+### END ITERATE DAPC OVER K ###
+
+
+^^^URHERE, perhaps the iteration should proceed from 2 to K, with subsets of exclusive assignments split off and analyzed separately.
+
+With sufficient nloci, dapc produces only exclusive assignments, with little suggestion of pseudo-admixture. 
+Examination of trial runs suggests that dapc is an unstable procedure. 50K is clearly insufficient, up to 1000K loci still shows
+some minor variation between randomly assembled datasets (but is generally much better).  Using n.da=2 (two discriminant functions)
+and scale=TRUE may stabilize things further a bit. 
+ 
+

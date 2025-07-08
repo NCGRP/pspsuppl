@@ -1,0 +1,292 @@
+
+### BEGIN SUBSET WITH >1E6bp CONTIGS ###
+
+#stats for variant data
+			stats:     n=171805466 mean=472.393 var=4.07986e+06 sd=2019.87   <--Hp skimseq, 2N, 86 samples, inc other species
+			stats:     n=29966534 mean=707.547 var=2.25598e+06 sd=1501.99    <--Hp skimseq, 24N, 86 samples, inc other species
+			stats:     n=197014198 mean=577.931 var=6.79924e+06 sd=2607.54   <--Hp skimseq, 2N, 122 samples, inc other species
+			stats:     n=32292075 mean=916.721 var=4.07897e+06 sd=2019.65    <--Hp skimseq, 24N, 122 samples, inc other species
+
+#start with the dataset PI540631_PIx_50N_fbp.vcf.
+cd /90daydata/patellifolia/MitchSeq/vcf;
+v="EL10.2"; #root genome name
+b="EL"; #reference genome abbreviation "EL"[10.2] or "PI"[540631], to help locate the merged map file
+p=50; #ploidy
+fn="$v"_"$b"x_"$p""N_fbp; #file prefix
+p=50; #ploidy
+grep -n -m1 CHROM "$fn".vcf; #CHROM is on l3259, so genotypes start on l3260
+
+
+^^^edited to here
+
+#genotypes are in column 10 thru end of line. count #loci with no missing data
+grep -m1 CHROM "$fn".vcf | cut -d$'\t' -f10- | tr '\t' '\n' | wc -l; #there are 122 samples to start
+time tail -n+3260 "$fn".vcf | cut -d$'\t' -f8 | cut -d';' -f18 | grep 'NS=122' | wc -l; #field NS=number of samples with data, 5 min, 5247 loci have no missing data, not enough
+
+#figure out how to remove non H. pusillum species from the vcf
+c=$(grep -m1 CHROM "$fn".vcf | tr '\t' '\n' | nl -nln); #find column number of sample name
+b="	int
+euc
+chilense
+brachy
+muticum
+erectifolium
+steno";
+d=$(grep -v -f <(echo "$b") <(echo "$c") | cut -d' ' -f1 | tr '\n' ',' | sed 's/,$//'); #get all columns to keep
+
+head -3258 "$fn".vcf > "$fn"_pus.vcf; #get a header for the vcf file that will only contain pusillum samples
+
+time grep -A1000000000 CHROM "$fn".vcf | cut -d$'\t' -f"$d" >> "$fn"_pus.vcf; #8.5min, keep only pusillum columns
+grep -m1 CHROM "$fn"_pus.vcf | tr '\t' '\n' | nl -nln; #inspect to verify correct removal
+grep -A1000000000 CHROM "$fn"_pus.vcf | awk -F$'\t' '{print NF}' | sort | uniq -c; #returns 32292076 115, so all rows have same column number
+
+
+#count #loci with no missing data when only H. pusillum samples are included
+fn="OKref_122x_24N_fbp"; #file prefix
+v="$fn"_pus; export v;
+grep -n -m1 CHROM "$v".vcf; #CHROM is on l3259, so genotypes start on l3260
+grep -m1 CHROM "$v".vcf | cut -d$'\t' -f10- | tr '\t' '\n' | wc -l; #there are 106 samples of H. pusillum
+#time tail -n+3260 "$v".vcf | head | cut -d$'\t' -f8 | cut -d';' -f18 | grep 'NS=71 | wc -l; #field NS=number of samples with data, this method doesn't work because NS was calculated with 86 samples
+
+time grep -A10000000000 CHROM "$v".vcf | tail -n+2 | cut -d$'\t' -f10- | awk -F'.' '{print NF-1}' | nl -nln > lmiss.txt; #35 min,show number of missing calls per locus
+awk -F$'\t' '$2==0{print $0}' lmiss.txt | wc -l; #10949 loci with no missing data
+
+
+#collect all loci with no missing data in a pseudo vcf file
+time awk -F$'\t' '$2==0{print $1}' lmiss.txt > "$v"0missindex.txt; #get the line number of the variant with no missing data, 7s
+wc -l "$v"0missindex.txt; #10949 loci with no missing samples
+
+#extract just the variant lines from the vcf, so line numbering is the same as in "$v"0missindex.txt
+time sed '0,/^#CHROM/d' "$v".vcf > pusvariantsonly.txt; #8.5 min
+
+
+#use pure awk to extract variant loci only, going through the file only once, you want to do this on the login node not an interactive node (too slow)
+time awk 'NR==FNR{ a[$1]; m=$1; next } FNR in a{print; if (FNR==m) exit}' "$v"0missindex.txt pusvariantsonly.txt > "$v"0miss.vcf; #4 min
+
+
+
+#filter to include only variant quality >= 30
+time awk -F$'\t' '$6>=30{print $0}' "$v"0miss.vcf > "$v"0missQ30.vcf; #2 sec
+wc -l "$v"0missQ30.vcf; #8667 0missQ30 loci
+
+#find minimum depth of 0miss Q30 loci
+cut -d';' -f8 "$v"0missQ30.vcf | sed 's/DP=//' | sort -n | head; #it's 316 so > 1 read per sample, don't bother filtering by it
+
+#if there were 10E5+ loci remaining, you could subsample say 10K of them for m+
+#you can probably use a simple shuf for this since vcf has loci in rows
+#time shuf "$v"0missQ30.vcf | head -10000 | sort > "$v"0missQ30_10K.vcf; #2s
+#time shuf "$v"0missQ30.vcf | head -50000 | sort > "$v"0missQ30_50K.vcf; #4s
+
+#add back headers to 0missQ30.vcf files
+grep -m1 CHROM "$v".vcf > tmp.vcf;
+cat OKref_122x_24N_fbp_pus0missQ30.vcf >> tmp.vcf;
+mv tmp.vcf "$v"0missQ30_9K.vcf;
+
+
+#create m+ .dat file from vcf
+t=$(head -1 "$v"0missQ30_9K.vcf | cut -d$'\t' -f10- | tr '\t' '\n'); #get sample names
+#column with the number 1, nsamples times
+j=$(for i in $(seq 1 1 $(echo "$t" | wc -l | xargs));
+        do echo 1;
+        done;)
+rh=$(paste -d$'\t' <(echo "$t") <(echo "$j"));  #row header
+#the $rh looks like "Tecolotito	1" with tab delimit    
+
+#the .dat file data matrix for polyploids is just a space delimited list of the alleles at the locus
+#in this case all loci are 50N due to poolseq of 12 diploid individuals
+
+#clean up the matrix
+cut -d$'\t' -f10- "$v"0missQ30_9K.vcf | tr '\t' ' ' > mat.tmp
+seq -w 1 1 $(head -1 mat.tmp | awk -F' ' '{print NF}') | parallel 'cut -d" " -f{} mat.tmp | sed s/:.*$// > c{}.tmp'; #remove : delimited info in each genotype
+paste -d$'\t' c*.tmp > mat1.tmp; #reconstruct matrix with tab delimit
+
+
+#rotate mat1.tmp, result is space delimited
+awk '
+{
+for (i=1; i<=NF; i++)  {
+    a[NR,i] = $i
+    }
+}
+NF>p { p = NF }
+END {   
+    for(j=1; j<=p; j++) {
+        str=a[1,j]
+        for(i=2; i<=NR; i++){
+            str=str" "a[i,j];
+        }
+        print str
+    }
+}' < mat1.tmp > rot.tmp;
+
+cat rot.tmp | tr ' ' '\t' > rot1.tmp; #tab delimit matrix so loci are tab separated
+paste -d$'\t' <(echo "$rh") rot1.tmp | tr '/' ' ' > 9K.dat; #combine, space delimit alleles within tab delimited loci
+
+#clean up
+rm *.tmp
+
+#create m+ .var file
+h=$(echo 'code 0    
+individu 0    
+Sample 1 0 0 1 5' | tr ' ' '\t');
+
+#create the 50N polyploid coding for 9K+ loci
+ln=$(cut -d$'\t' -f1-2 "$v"0missQ30_9K.vcf | tail -n+2 | tr '\t' '.'); #locus names
+key=$(echo " 2 1 0 1 5" | tr ' ' '\t'); #specify that loci are reference and not target loci
+ln24=$(for i in $ln;
+         do for j in {1..24};
+              do echo "$i""$key";
+              done;
+         done;)
+
+#finalize the var file
+echo "$h" > 9K.var;
+echo "$ln24" >> 9K.var;
+
+mkdir ../../m+;
+mkdir ../../m+/9K;
+mv 9K.* ../../m+/9K;
+cd /90daydata/patellifolia/Hpusillum/WGS/SkimSeq/m+/9K;
+
+#make a .ker file to ensure inclusion of the NPGS accessions in the core
+echo "Corner-Camp-BASEsub
+resub-AZpoolsub
+KYNPGS
+ALNPGS
+OKNPGS
+resub-CO-Poolsub
+W642830sub" > 9K.ker;
+
+
+#move data to compute-0-12
+cd /Volumes/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample/m+; #on NAS/mini
+rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/m+/9K*" .;
+cd /scratch/reevesp/Hpusillum/WGS/SkimSeq/m+; #compute-0-12
+rsync -aP botch@10.177.9.246:"/Volumes/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample/m+/9K" .;
+
+
+
+#run m+mpi on compute-0-12
+p="9K"; #file prefix
+cd /scratch/reevesp/Hpusillum/WGS/SkimSeq/m+/9K;
+time mpirun -np 5 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p".ker -m 7 9 1 1 "$p"out.tmp; #test, 2 min
+
+#including W642830
+time mpirun -np 36 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p".ker -m 7 106 1 10 "$p"out.txt; #scan, 181 min compute-0-12
+
+
+##koontz pipeline##
+#begin M+ searches with <10Kbp data
+ssh compute-0-12;
+cd /scratch/reevesp/AustinKoontz/m+;
+rsync -aP botch@10.177.9.246:"/Volumes/Public/Data/PatReeves/AustinKoontz/Datasets/M_guttatus/m+/run2" .;
+
+#there are 255 individuals and 1498 loci
+cd run2;
+time mpirun -np 56 m+ mguttnative_10K_hxout_1.1.b1.var mguttnative_10K_hxout_1.1.b1.dat -m 2 255 5 1 ./mgnativeout1.txt; #12 min, test input, estimate convergence on 90%
+
+#test run says inspect r=17-25 to zero in on 90% capture
+(time mpirun -np 56 m+ mguttnative_10K_hxout_1.1.b1.var mguttnative_10K_hxout_1.1.b1.dat -m 17 25 1 6 ./mgnativeout2.txt) > log2.txt; #1.5 min, zero in on 90%
+
+#looks like 21 or 22 should do it, get 100 reps of each
+(time mpirun -np 56 m+ mguttnative_10K_hxout_1.1.b1.var mguttnative_10K_hxout_1.1.b1.dat -m 21 22 1 100 ./mgnativeout3.txt) > log3.txt; #5 min
+
+#return results to NAS
+rsync -aP /scratch/reevesp/AustinKoontz/m+/run2 botch@10.177.9.246:"/Volumes/Public/Data/PatReeves/AustinKoontz/Datasets/M_guttatus/m+";
+##end koontz pipeline##
+
+
+time mpirun -np 36 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p".ker -m 20 36 1 10 "$p"out.r10.txt; #focus on 90-95% retention, 63 min ceres
+time mpirun -np 56 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p".ker -m 22 36 14 100 "$p"out.r100.txt; #focus on 90 and 95% retention, 86 min ceres
+#stats
+for i in 36;
+  do echo "$i";
+    grep ^"$i"$'\t' "$p"out.r100.txt | awk -F$'\t' '{print $10}' | sed 's/[()]//g' | tr ',' '\n' | sort | uniq -c \
+         | sed 's/^ *//g' | awk -F' ' '$1==100{print $2}' > "$p"out.R"$i".ker; #there are 28 pops that occur in all 100 reps from R=36
+  done;
+time mpirun -np 2 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p"out.R"$i".ker -m 28 28 1 1 "$p"out.R"$i".txt; #focus on 90 and 95% retention, 15 min ceres
+
+
+#with W642830 in kernel
+time mpirun -np 36 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p".ker -m 6 30 1 4 "$p"TXkerout.txt; #scan, x min ceres
+
+
+#try Astar including W642830
+cd /90daydata/patellifolia/Hpusillum/WGS/SkimSeq/m+/9K;
+sshort72;
+p="9K";
+(time mpirun -np 1 ~/bin/MplusMPI/m+ "$p".var "$p".dat -a "$p".txt) > "$p"Astarlog.txt; #24 min ceres
+
+
+
+
+
+
+
+#do an M+ search with the kernel 6, plus 5 possible bulk collection sites
+sshort72;
+p="36K";
+s="ALNPGS Corner-Camp-BASEsub KYNPGS W642830sub resub-AZpoolsub resub-CO-Poolsub BRODUS-BASEsub BlackCreekLake Comanchesub Counselor ValleyView"; #samples to use
+>"$p"11s.ker;
+for i in $s;
+  do echo "$i" >> "$p"11s.ker;
+  done;  
+time ~/bin/Mplus/m+1 "$p".var "$p".dat -k "$p"11s.ker -m 11 11 1 1 "$p"11sout.txt; #scan, 12 min ceres
+
+
+#do an M+ search with the kernel 6, plus 3 high priority bulk collection sites
+sshort72;
+p="36K";
+s="ALNPGS Corner-Camp-BASEsub KYNPGS W642830sub resub-AZpoolsub resub-CO-Poolsub BlackCreekLake Comanchesub ValleyView"; #samples to use
+>"$p"9s.ker;
+for i in $s;
+  do echo "$i" >> "$p"9s.ker;
+  done;  
+time ~/bin/Mplus/m+1 "$p".var "$p".dat -k "$p"9s.ker -m 9 9 1 1 "$p"9sout.txt; #scan, 12 min ceres
+
+
+#do an M+ search with the kernel 6, plus 2 highest priority bulk collection sites
+sshort72;
+p="36K";
+s="ALNPGS Corner-Camp-BASEsub KYNPGS W642830sub resub-AZpoolsub resub-CO-Poolsub Comanchesub ValleyView"; #samples to use
+>"$p"8s.ker;
+for i in $s;
+  do echo "$i" >> "$p"8s.ker;
+  done;  
+time ~/bin/Mplus/m+1 "$p".var "$p".dat -k "$p"8s.ker -m 8 8 1 1 "$p"8sout.txt; #scan, 12 min ceres
+
+
+
+#report: at the level of the SNP, not the haplotype, each new high priority population offers ~1% increase in the number of alleles in the collection
+		#kersize	%rec	allelecount
+		6			0.741	50990 #NPGS collections minus AZ minus proper pool sampling of OK
+		8			0.773	53679 #plus Comanche and ValleyView
+		9			0.784	54689 #plus Comanche, ValleyView, and BlackCreekLake
+		11			0.798	55944 #plus $s, above
+
+
+
+
+
+
+
+
+#clean up
+rm *.tmp;
+rm "$p"out.txt;
+rm "$p"noW6TXout.txt;
+
+#return results to NAS
+cd /Volumes/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/86sample/m+;
+rsync -aP pat.reeves@ceres-dtn.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/m+/*" .;
+rsync -aP pat.reeves@ceres-dtn.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/m+/36KnoW6TX.dat" .;
+
+### END SUBSET WITH >1E6bp CONTIGS ###
+
+
+
+
+
+
+
+

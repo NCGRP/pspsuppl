@@ -1,0 +1,586 @@
+
+### DOWNLOAD AND EXTRACT DATA ###
+
+#get the Bvm64 illumina data
+mkdir rawdata;
+cd /project/patellifolia/Bvulgaris/rawdata;
+rsync -aP pat.reeves@xxx.usda.gov:"/xxx/MaritimaPE250Poolseq/POOL_1_S41_L002_R[12]_001.fastq.gz" .; #about 2 hrs at 20MB/s
+mv POOL_1_S41_L002_R1_001.fastq.gz Bvm64_1.fastq.gz; #rename for compatibility
+mv POOL_1_S41_L002_R2_001.fastq.gz Bvm64_2.fastq.gz; #rename for compatibility
+
+
+#download raw data from SRA = 196 mitchseq accessions with "population of 25 sequenced to 80x depth"
+cd /project/patellifolia/Bvulgaris/rawdata;
+srrnames="SRR10224898 SRR10224922 SRR10192977 SRR10192979 SRR10224923 SRR10224912 SRR10224910 SRR10224915 SRR10224914 SRR12806866 SRR12806867 SRR12806864 SRR12806865 SRR12806811 SRR12806809 SRR10192986 SRR10192983 SRR10224891 SRR10192996 SRR10224882 SRR10192995 SRR10224880 SRR10192984 SRR12806868 SRR10224885 SRR10224890 SRR10224883 SRR10192980 SRR10224886 SRR10224894 SRR10192976 SRR10192994 SRR10224893 SRR10224881 SRR10224888 SRR10192992 SRR10192993 SRR10224884 SRR10192988 SRR10224887 SRR10192987 SRR10192985 SRR10224895 SRR10224892 SRR13203992 SRR13203989 SRR13203988 SRR12806894 SRR12806895 SRR13204014 SRR12806884 SRR12806872 SRR12806855 SRR12806843 SRR12806833 SRR13204013 SRR13203980 SRR12806820 SRR12806863 SRR13204002 SRR12806810 SRR12806892 SRR12806893 SRR12806890 SRR12806891 SRR12806889 SRR12806887 SRR12806888 SRR13203990 SRR13203979 SRR13203978 SRR12806885 SRR12806886 SRR10192978 SRR12806883 SRR13203975 SRR13203974 SRR12806882 SRR12806881 SRR12806880 SRR13203973 SRR13203972 SRR12806879 SRR12806878 SRR13203991 SRR12806877 SRR12806876 SRR12806875 SRR12806874 SRR12806873 SRR13204012 SRR13203981 SRR13204011 SRR12806871 SRR12806870 SRR12806861 SRR12806862 SRR12806859 SRR10192981 SRR10224902 SRR10224903 SRR12806860 SRR12806857 SRR12806858 SRR10224904 SRR10224899 SRR10224901 SRR12806856 SRR12806854 SRR12806852 SRR12806853 SRR12806850 SRR12806851 SRR12806849 SRR12806848 SRR10192991 SRR10224905 SRR10224906 SRR10224911 SRR12806847 SRR12806846 SRR10059367 SRR12806845 SRR12806844 SRR12806841 SRR12806842 SRR12806839 SRR13204010 SRR10224916 SRR12806840 SRR13204009 SRR13204008 SRR13204007 SRR13204006 SRR13204005 SRR13203982 SRR12806837 SRR10224900 SRR12806838 SRR12806836 SRR12806834 SRR13204004 SRR13204003 SRR13204001 SRR10224889 SRR10224878 SRR12806835 SRR12806832 SRR12806830 SRR12806831 SRR12806829 SRR12806828 SRR12806827 SRR12806826 SRR12806825 SRR10192989 SRR10224872 SRR10224913 SRR10224897 SRR10224896 SRR13204000 SRR13203999 SRR13203998 SRR10192982 SRR10224871 SRR10224870 SRR10224869 SRR10224921 SRR12806824 SRR10224920 SRR10224919 SRR10224918 SRR10224917 SRR10224907 SRR10224908 SRR10224909 SRR13203997 SRR13203996 SRR13203995 SRR13203994 SRR12806822 SRR13203983 SRR12806823 SRR12806821 SRR12806819 SRR10192990 SRR12806818 SRR12806817 SRR13203993 SRR12806815 SRR12806816 SRR12806813 SRR12806814 SRR12806812 SRR12806869 SRR13203987";
+
+#prefetch sra (~5Tb)
+>logprefetch.txt;
+time (echo "$srrnames" | tr ' ' '\n' | parallel --jobs=24 '/home/pat.reeves/bin/sratoolkit/bin/prefetch {} --max-size 100g; echo {}') 2>&1 | tee -a logprefetch.txt; #5.0Tb, ~36hrs to download all in serial, gnu parallel work on atlas unless you specify --jobs=, I didn't do that so it took 36 hrs (corrected now)
+
+#two downloads failed SRR10224890 and SRR12806842, get those
+srrnames2="SRR10224890 SRR12806842";
+>logprefetch2.txt;
+time (echo "$srrnames2" | tr ' ' '\n' | parallel --jobs=2 '/home/pat.reeves/bin/sratoolkit/bin/prefetch {} --max-size 100g; echo {}') 2>&1 | tee -a logprefetch2.txt;
+
+
+#extract to fastq.gz, these take like 13hrs each for some reason, archive the SRR on /90daydata because .sra +.fastq.gz files will exceed 10TB
+#the fastq.gz files will have names like SRR12806866_1.fastq.gz and SRR12806866_2.fastq.gz
+#these take 13 hrs each on /project and 7.5 hrs each on /90daydata
+cd /90daydata/patellifolia/MitchSeq/Bvm64SRRarchive;
+for i in $(echo "$srrnames" | cut -d' ' -f1-2);
+for i in $(echo "$srrnames" | cut -d' ' -f3-);
+for i in $srrnames;
+  do sbatch --job-name=sra2fq -p atlas --account=patellifolia -n 4 -N 1 --mem=90G -t 48:00:00 -e "$i"_stderr.%j.%N -o "/dev/null" \
+     --wrap "time /home/pat.reeves/bin/sratoolkit/bin/fastq-dump --origfmt --gzip --split-3 "$i";
+     "
+  done;
+
+#clean up
+rm SRR*_stderr.*;
+rm logprefetch*.txt;
+
+### END DOWNLOAD AND EXTRACT DATA ###
+
+
+
+
+
+
+### TRIM ADAPTERS ###
+
+#apply bbtools adapter contamination removal tool bbduk.sh in trim mode (which removes just
+the matching sequence) not filter mode (removes whole sequences with adapters).
+
+cd /90daydata/patellifolia/MitchSeq;
+mkdir duk; #output data will go here
+cd /90daydata/patellifolia/MitchSeq/duk;
+
+p="/90daydata/patellifolia/MitchSeq/Bvm64SRRarchive/"; #path to data
+f=$(find "$p" -name "*_1.fastq.gz" | rev | cut -d'/' -f1 | rev | cut -d_ -f1 | sort | tr '\n' ' ' | sed 's/ $//'); #sample name (root)
+for i in $(echo "$f" | cut -d' ' -f3-);
+for i in $(echo "$f" | cut -d' ' -f1-2);
+for i in $f;
+for i in $(echo "$f" | cut -d' ' -f1);
+  do sbatch --job-name="bbduk" -p atlas --account=patellifolia \
+            -N 1 -n 24 --mem=150G -t 2-00:00:00 -o "/dev/null" -e "stderr.%j.%N.%A.%a" -o "/dev/null" \
+            --wrap="module load bbmap/39.10;
+                   time bbduk.sh unpigz=t in="$p""$i"_1.fastq.gz in2="$p""$i"_2.fastq.gz ref=/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/adaptersALL.fa \
+                   out="$i"_R1.duk.fq.gz out2="$i"_R2.duk.fq.gz \
+                   outm=fail_"$i"_R1.fq.gz outm2=fail_"$i"_R2.fq.gz \
+                   stats=trimStats_"$i".txt \
+                   ktrim=r qtrim=rl trimq=6 k=21 mink=11 hdist=1 hdist2=0 minlength=50; #shortest seq in adaptersALL.fa is 21 bp
+                                                                                #trim to the right (ktrim=r, adapters on 3' ends only with Illumina)
+                                                                                #quality trim on both sides, qtrim=rl trimq=6 (6 is default)
+                   "
+  done; #take 5-25 min each, so maybe 1 hour all-in
+
+
+
+
+#evaluate trimming
+#the trimmed output files range in size from x-yGB
+
+grep '#Matched' trim* | sort -t$'\t' -k3,3nr; #inspect level of adapter trimming
+			trimStats_Bvm64.txt:#Matched	73980675	6.97666%
+			trimStats_SRR13204010.txt:#Matched	22023722	4.23180%
+			trimStats_SRR13204007.txt:#Matched	20819484	4.16234%
+			trimStats_SRR13203973.txt:#Matched	19876499	4.09660%
+			trimStats_SRR13204014.txt:#Matched	20557725	4.08980%
+			trimStats_SRR13203972.txt:#Matched	18412759	3.66400%
+			trimStats_SRR13204013.txt:#Matched	18949835	3.65996%
+			trimStats_SRR13204012.txt:#Matched	17210779	3.58053%
+			trimStats_SRR13204009.txt:#Matched	18749704	3.55930%
+			trimStats_SRR13203980.txt:#Matched	14479709	3.45097%
+			trimStats_SRR13203991.txt:#Matched	14919658	3.40582%
+			trimStats_SRR13203974.txt:#Matched	17150942	3.40300%
+			trimStats_SRR13204011.txt:#Matched	19220069	3.24613%
+			trimStats_SRR13204008.txt:#Matched	15247154	3.20680%
+			trimStats_SRR13204002.txt:#Matched	13660357	3.12954%
+			trimStats_SRR13203987.txt:#Matched	14520236	3.12312%
+			trimStats_SRR13203999.txt:#Matched	16976661	2.98792%
+			trimStats_SRR13203982.txt:#Matched	15901461	2.93338%
+			trimStats_SRR13203975.txt:#Matched	13115945	2.93173%
+			trimStats_SRR13203981.txt:#Matched	20568638	2.90219%
+			trimStats_SRR13203983.txt:#Matched	29036906	2.78388%
+			trimStats_SRR13204006.txt:#Matched	13123741	2.66388%
+			trimStats_SRR13203992.txt:#Matched	11993376	2.55649%
+			trimStats_SRR13203998.txt:#Matched	11704853	2.54291%
+			trimStats_SRR13203997.txt:#Matched	12271172	2.53839%
+			trimStats_SRR13204005.txt:#Matched	10874674	2.50094%
+			trimStats_SRR13204001.txt:#Matched	14384145	2.49401%
+			trimStats_SRR13203978.txt:#Matched	10810105	2.38165%
+			trimStats_SRR13204004.txt:#Matched	15498238	2.36734%
+			trimStats_SRR13204003.txt:#Matched	12084163	2.35649%
+			trimStats_SRR13203988.txt:#Matched	10051758	2.29956%
+			trimStats_SRR13203993.txt:#Matched	21482040	2.29703%
+			trimStats_SRR13203995.txt:#Matched	9761560	2.20178%
+			trimStats_SRR13203996.txt:#Matched	12434418	2.19321%
+			trimStats_SRR13203990.txt:#Matched	9071474	2.06553%
+			trimStats_SRR13204000.txt:#Matched	12315340	2.03833%
+			trimStats_SRR13203994.txt:#Matched	9701998	1.99510%
+			trimStats_SRR13203989.txt:#Matched	13221407	1.97129%
+			trimStats_SRR13203979.txt:#Matched	9115266	1.80399%
+			trimStats_SRR12806836.txt:#Matched	7988859	1.55356%
+			trimStats_SRR12806810.txt:#Matched	7356033	1.40658%
+			trimStats_SRR12806830.txt:#Matched	5675822	1.21415%
+			trimStats_SRR12806852.txt:#Matched	6711047	1.15770%
+			trimStats_SRR12806817.txt:#Matched	6031308	1.12163%
+			trimStats_SRR12806829.txt:#Matched	5709944	1.10444%
+			trimStats_SRR12806861.txt:#Matched	5987147	1.07150%
+			trimStats_SRR12806818.txt:#Matched	5617988	1.06386%
+			trimStats_SRR12806895.txt:#Matched	6130446	1.06372%
+			trimStats_SRR12806809.txt:#Matched	5473545	1.02601%
+			trimStats_SRR12806823.txt:#Matched	5706218	1.02407%
+			trimStats_SRR12806864.txt:#Matched	5326240	1.02348%
+			trimStats_SRR12806892.txt:#Matched	5005285	1.02012%
+			trimStats_SRR12806828.txt:#Matched	4883769	1.00025%
+			trimStats_SRR12806816.txt:#Matched	4938240	0.99643%
+			trimStats_SRR12806865.txt:#Matched	5338652	0.98144%
+			trimStats_SRR12806876.txt:#Matched	4635071	0.96070%
+			trimStats_SRR12806872.txt:#Matched	4173434	0.93035%
+			trimStats_SRR12806863.txt:#Matched	4928252	0.92623%
+			trimStats_SRR12806884.txt:#Matched	5013304	0.91286%
+			trimStats_SRR12806827.txt:#Matched	4709090	0.89630%
+			trimStats_SRR12806825.txt:#Matched	4628604	0.88905%
+			trimStats_SRR12806866.txt:#Matched	4191024	0.88025%
+			trimStats_SRR12806855.txt:#Matched	4637078	0.86456%
+			trimStats_SRR12806826.txt:#Matched	4646831	0.84925%
+			trimStats_SRR12806843.txt:#Matched	4634861	0.84035%
+			trimStats_SRR12806824.txt:#Matched	3821060	0.83351%
+			trimStats_SRR12806877.txt:#Matched	4383393	0.83258%
+			trimStats_SRR12806815.txt:#Matched	4710027	0.83071%
+			trimStats_SRR12806820.txt:#Matched	4648400	0.83004%
+			trimStats_SRR12806886.txt:#Matched	4592888	0.82788%
+			trimStats_SRR12806860.txt:#Matched	4519148	0.80786%
+			trimStats_SRR10224909.txt:#Matched	3449969	0.78485%
+			trimStats_SRR12806833.txt:#Matched	4742433	0.78439%
+			trimStats_SRR12806813.txt:#Matched	3846317	0.77904%
+			trimStats_SRR12806834.txt:#Matched	3685258	0.76183%
+			trimStats_SRR12806845.txt:#Matched	4391734	0.76182%
+			trimStats_SRR12806878.txt:#Matched	4480038	0.75889%
+			trimStats_SRR12806894.txt:#Matched	4488583	0.75793%
+			trimStats_SRR12806887.txt:#Matched	4088076	0.75502%
+			trimStats_SRR12806854.txt:#Matched	3541461	0.75192%
+			trimStats_SRR12806890.txt:#Matched	3821187	0.74915%
+			trimStats_SRR12806881.txt:#Matched	2442645	0.74792%
+			trimStats_SRR12806867.txt:#Matched	3322048	0.74494%
+			trimStats_SRR12806885.txt:#Matched	3943378	0.74430%
+			trimStats_SRR12806868.txt:#Matched	3653175	0.73921%
+			trimStats_SRR12806893.txt:#Matched	3362961	0.73741%
+			trimStats_SRR12806869.txt:#Matched	3685330	0.73092%
+			trimStats_SRR12806888.txt:#Matched	4568495	0.72927%
+			trimStats_SRR12806831.txt:#Matched	3814403	0.72805%
+			trimStats_SRR12806832.txt:#Matched	2913826	0.71922%
+			trimStats_SRR12806862.txt:#Matched	3260580	0.71533%
+			trimStats_SRR12806844.txt:#Matched	3295625	0.70891%
+			trimStats_SRR12806822.txt:#Matched	3381490	0.69802%
+			trimStats_SRR12806811.txt:#Matched	3547722	0.69707%
+			trimStats_SRR12806889.txt:#Matched	3932890	0.69497%
+			trimStats_SRR12806857.txt:#Matched	3197967	0.69391%
+			trimStats_SRR12806859.txt:#Matched	3679375	0.69140%
+			trimStats_SRR12806838.txt:#Matched	3624349	0.68940%
+			trimStats_SRR12806858.txt:#Matched	3303778	0.68415%
+			trimStats_SRR12806891.txt:#Matched	3958731	0.66909%
+			trimStats_SRR12806874.txt:#Matched	3068879	0.66692%
+			trimStats_SRR12806879.txt:#Matched	3464161	0.65695%
+			trimStats_SRR12806856.txt:#Matched	3556004	0.65501%
+			trimStats_SRR12806883.txt:#Matched	3274953	0.65049%
+			trimStats_SRR12806870.txt:#Matched	3108650	0.63501%
+			trimStats_SRR12806873.txt:#Matched	3070382	0.63284%
+			trimStats_SRR12806871.txt:#Matched	3517084	0.63263%
+			trimStats_SRR12806875.txt:#Matched	3029641	0.63006%
+			trimStats_SRR12806819.txt:#Matched	3756836	0.62853%
+			trimStats_SRR12806853.txt:#Matched	3336529	0.62483%
+			trimStats_SRR12806880.txt:#Matched	3649079	0.61804%
+			trimStats_SRR12806840.txt:#Matched	3589646	0.60726%
+			trimStats_SRR12806821.txt:#Matched	3119849	0.59766%
+			trimStats_SRR12806882.txt:#Matched	2843498	0.59272%
+			trimStats_SRR12806841.txt:#Matched	2719262	0.59151%
+			trimStats_SRR12806848.txt:#Matched	3092796	0.58094%
+			trimStats_SRR12806850.txt:#Matched	3241964	0.57331%
+			trimStats_SRR12806814.txt:#Matched	2799174	0.57176%
+			trimStats_SRR12806846.txt:#Matched	3277458	0.56948%
+			trimStats_SRR12806835.txt:#Matched	2366694	0.56533%
+			trimStats_SRR12806839.txt:#Matched	2708114	0.54579%
+			trimStats_SRR12806851.txt:#Matched	2899329	0.53932%
+			trimStats_SRR12806842.txt:#Matched	2624624	0.53915%
+			trimStats_SRR12806847.txt:#Matched	2860267	0.53334%
+			trimStats_SRR12806849.txt:#Matched	3028645	0.53067%
+			trimStats_SRR12806837.txt:#Matched	2754825	0.52082%
+			trimStats_SRR10224888.txt:#Matched	2876192	0.51983%
+			trimStats_SRR12806812.txt:#Matched	2970205	0.49429%
+			trimStats_SRR10224892.txt:#Matched	1527522	0.35851%
+			trimStats_SRR10192977.txt:#Matched	3008567	0.35507%
+			trimStats_SRR10224882.txt:#Matched	2184759	0.34002%
+			trimStats_SRR10224869.txt:#Matched	1949990	0.33977%
+			trimStats_SRR10224896.txt:#Matched	1616241	0.33598%
+			trimStats_SRR10192996.txt:#Matched	1712019	0.32934%
+			trimStats_SRR10224920.txt:#Matched	2123608	0.32413%
+			trimStats_SRR10224921.txt:#Matched	1562364	0.32087%
+			trimStats_SRR10224915.txt:#Matched	1802041	0.30902%
+			trimStats_SRR10192982.txt:#Matched	1454236	0.29845%
+			trimStats_SRR10059367.txt:#Matched	1437878	0.29480%
+			trimStats_SRR10224918.txt:#Matched	1368144	0.29112%
+			trimStats_SRR10224891.txt:#Matched	1286382	0.28112%
+			trimStats_SRR10224895.txt:#Matched	1527186	0.28100%
+			trimStats_SRR10224893.txt:#Matched	1366266	0.27415%
+			trimStats_SRR10192993.txt:#Matched	1347793	0.26937%
+			trimStats_SRR10224900.txt:#Matched	1316285	0.26842%
+			trimStats_SRR10224884.txt:#Matched	1415575	0.26802%
+			trimStats_SRR10224916.txt:#Matched	1193574	0.26664%
+			trimStats_SRR10224872.txt:#Matched	1188827	0.26649%
+			trimStats_SRR10224917.txt:#Matched	1365466	0.26344%
+			trimStats_SRR10224878.txt:#Matched	1193039	0.25570%
+			trimStats_SRR10224919.txt:#Matched	1203148	0.25260%
+			trimStats_SRR10224889.txt:#Matched	1148758	0.25002%
+			trimStats_SRR10224894.txt:#Matched	1130175	0.24780%
+			trimStats_SRR10224881.txt:#Matched	1108979	0.24618%
+			trimStats_SRR10224907.txt:#Matched	1149025	0.24032%
+			trimStats_SRR10224870.txt:#Matched	1041043	0.23910%
+			trimStats_SRR10224922.txt:#Matched	1026775	0.23899%
+			trimStats_SRR10224908.txt:#Matched	1053169	0.23300%
+			trimStats_SRR10192988.txt:#Matched	922955	0.23287%
+			trimStats_SRR10192981.txt:#Matched	1063178	0.23283%
+			trimStats_SRR10192990.txt:#Matched	1068545	0.23105%
+			trimStats_SRR10224899.txt:#Matched	1104603	0.22997%
+			trimStats_SRR10224890.txt:#Matched	1188080	0.22944%
+			trimStats_SRR10224903.txt:#Matched	1100511	0.22763%
+			trimStats_SRR10192980.txt:#Matched	1099888	0.22695%
+			trimStats_SRR10192987.txt:#Matched	1241134	0.22649%
+			trimStats_SRR10224871.txt:#Matched	1047788	0.22554%
+			trimStats_SRR10224911.txt:#Matched	955870	0.22522%
+			trimStats_SRR10224913.txt:#Matched	965311	0.22405%
+			trimStats_SRR10224902.txt:#Matched	1076026	0.22310%
+			trimStats_SRR10224904.txt:#Matched	971420	0.21893%
+			trimStats_SRR10224910.txt:#Matched	951031	0.21843%
+			trimStats_SRR10224914.txt:#Matched	897871	0.21463%
+			trimStats_SRR10192983.txt:#Matched	1060219	0.21072%
+			trimStats_SRR10224901.txt:#Matched	910429	0.21031%
+			trimStats_SRR10224897.txt:#Matched	935775	0.20633%
+			trimStats_SRR10224885.txt:#Matched	882796	0.20560%
+			trimStats_SRR10224883.txt:#Matched	886132	0.20301%
+			trimStats_SRR10192991.txt:#Matched	1108130	0.20175%
+			trimStats_SRR10224923.txt:#Matched	955447	0.19868%
+			trimStats_SRR10224906.txt:#Matched	831521	0.19594%
+			trimStats_SRR10224912.txt:#Matched	769621	0.18757%
+			trimStats_SRR10224880.txt:#Matched	772289	0.18629%
+			trimStats_SRR10224898.txt:#Matched	754512	0.18537%
+			trimStats_SRR10224886.txt:#Matched	756841	0.17626%
+			trimStats_SRR10224887.txt:#Matched	725510	0.16839%
+			trimStats_SRR10224905.txt:#Matched	821637	0.16352%
+			trimStats_SRR10192979.txt:#Matched	800638	0.16241%
+			trimStats_SRR10192995.txt:#Matched	746071	0.15994%
+			trimStats_SRR10192989.txt:#Matched	682101	0.14144%
+			trimStats_SRR10192986.txt:#Matched	1045011	0.11859%
+			trimStats_SRR10192994.txt:#Matched	443802	0.11087%
+			trimStats_SRR10192976.txt:#Matched	584594	0.09474%
+			trimStats_SRR10192992.txt:#Matched	501939	0.09320%
+			trimStats_SRR10192985.txt:#Matched	455131	0.08345%
+			trimStats_SRR10192984.txt:#Matched	394050	0.08319%
+			trimStats_SRR10192978.txt:#Matched	599321	0.07810%
+
+
+#clean up
+mkdir logs;
+mv trim* logs;
+mv fail* logs;
+rm stderr.*
+
+### END TRIM ADAPTERS ###
+
+
+
+
+
+
+
+### MAP TRIMMED READS TO EL10.2 ###
+
+# use bwa-mem to align each sample's reads to the reference genome, then sort using samtools
+# The path to the reference genome is /project/patellifolia/Bvulgaris/refgenomes/EL10.2.fa.
+
+cd /project/patellifolia/Bvulgaris/refgenomes;
+module load samtools/1.19.2;
+module load bwa/0.7.17;
+time samtools faidx EL10.2.fa; #2s
+time bwa index EL10.2.fa; #8 min
+
+
+#map bbduk.sh adapter-trimmed paired reads to EL10.2.fa reference
+mypp() { 
+       i=$1;
+       a=$(echo "$i" | rev | cut -d'/' -f1 | rev); #get file name exclusive of path
+       b=$(echo "$a" | sed 's/_R1/_R2/'); #make file name for read pair R2
+       ID=$(echo "$a" | cut -d_ -f1); #get brief ID string (looks like final sed above is irrelevant...)
+       readgroup="@RG\tID:$ID\tSM:$ID\tPL:illumina\tLB:na\tPU:na";
+
+       #bwa mem settings: -M, mark secondary alignments
+       #samtools view settings: -f 1, include read pairs
+       #                        -F 3852, exclude unmapped reads && reads whose mate or pair is unmapped && not primary alignment && read fails platform/vendor quality checks && read is PCR or optical duplicate && supplementary alignment
+       #                        -q 60, exclude alignments with mapq < 60
+
+       bwa mem -t 8 -M -R "$readgroup" $rwd/"$v".fa $wd/"$a" $wd/"$b" \
+           | samtools view --threads 8 -h -f 1 -F 3852 -q 60 \
+           | samtools sort --threads 8 -n -T tmp.$a -O SAM \
+           | samtools fixmate --threads 8 -m -r -O SAM - - \
+           | samtools sort --threads 8 -T tmp1.$a -O BAM \
+           | samtools markdup --threads 8 -r - $wd/$ID.bam; #stdout from bwa mem goes to samtools view for filtering,
+                                              # then samtools sort -n for sort by name
+                                              # then samtools fixmate -m -r to add mate scores and remove secondary and unmapped reads (this may have already be done by samtools view but there is no doc to indicate that these procedures are identical)
+                                              # then samtools sort for coordinate sorting
+                                              # then samtools markdup -r to remove PCR duplicates
+                                              # a coordinate sorted bam file is the result
+}
+export -f mypp;
+
+
+#set up to use EL10.2 as a reference
+rwd="/project/patellifolia/Bvulgaris/refgenomes";
+export rwd; #reference file directory
+v="EL10.2";
+export v;
+
+cd /90daydata/patellifolia/MitchSeq/duk;
+wd=$(pwd); export wd;
+
+#get a list of all the data sets to run
+#test
+b="/90daydata/patellifolia/MitchSeq/duk/Bvm64_R1.duk.fq.gz";
+b="/90daydata/patellifolia/MitchSeq/duk/SRR10192977_R1.duk.fq.gz /90daydata/patellifolia/MitchSeq/duk/SRR10192986_R1.duk.fq.gz /90daydata/patellifolia/MitchSeq/duk/SRR13203981_R1.duk.fq.gz /90daydata/patellifolia/MitchSeq/duk/SRR13203983_R1.duk.fq.gz /90daydata/patellifolia/MitchSeq/duk/SRR13203993_R1.duk.fq.gz";
+
+#production
+b=$(find "$wd" -name "*_R1.duk.fq.gz" | sort);
+
+for i in $b;
+  do sbatch --job-name="bwamem" -p atlas --account=patellifolia \
+       -N 1 -n 8 --mem=96G -t 14-00:00:00 -o "/dev/null" -e "stderr.%j.%N.%A.%a" \
+       --wrap="module load samtools/1.19.2;
+               echo "$i" 1>&2; \
+               time mypp $i;
+       "
+  done; #-n 8 --mem=96, 15 hrs average, 2.4 days for longest; -n 4 --mem=48G average about 33 hrs, the longest took 4 days, so this takes about a week in total
+
+
+#output from mapping step are files named like:
+# Bvm64.bam SRR10192987.bam
+
+
+#clean up
+mkdir ../bam;
+mv *.bam ../bam;
+rm stderr*;
+
+### END MAP TRIMMED READS TO EL10.2 ###
+
+
+
+
+
+### COMBINE MAPS, GET STATS ###
+
+#Combine sorted, deduped bam files, index files, then calculate depth
+#The merged bam file is important for variant calling later, so should be archived.
+#The resulting depth files are often large and not very useful, except for their summary stats, do not back up.
+#sambamba version 0.8.2 on ceres
+
+#merge all samples
+#satlas; #sshort
+v="EL"; #name for data set, based on reference genome abbreviation "EL"[10.2] or "PI"[540631]
+cd /90daydata/patellifolia/MitchSeq/bam;
+
+#set up for parsort
+mkdir /90daydata/patellifolia/MitchSeq/bam/tmpsort; #make a folder with ~unlimited storage to hold tmp sort files
+
+#using sbatch
+sbatch --job-name="merge" -p atlas --exclusive --account=patellifolia \
+            -N 1 -n 48 --mem=368G -t 3-12:00:00 -o "stdout.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
+            --wrap="cd /90daydata/patellifolia/MitchSeq/bam/;
+                   time sambamba merge -t48 -p "$v"x.merged.bam [BS][Rv]*.bam;  #takes ~15 hours
+                   time sambamba depth base -t48 "$v"x.merged.bam -o "$v"x.merged.coverage; #~2.4 days
+                   time cut -d$'\t' -f1-2 "$v"x.merged.coverage | tail -n +2 | parsort -T ./tmpsort | uniq -c \
+                        | sed 's/^ *//g' | parsort -t' ' -T ./tmpsort -k1,1nr > sampledepth_"$v"x.txt; #x min, use ./tmpsort as tmpdir
+                   "
+
+^^^URHERE, submitted
+
+^^^^URHERE, need to combine maps
+
+
+
+
+
+
+#print out the sample depth at each mapped position (how many samples map to the position?)
+#	cd /90daydata/patellifolia/MitchSeq/bam;
+#	v="EL"; #name for data set, based on reference genome abbreviation "EL"[10.2] or "PI"[540631]
+#	
+#	#with parsort
+#	mkdir /90daydata/patellifolia/MitchSeq/bam/tmpsort; #make a folder with ~unlimited storage to hold tmp sort files
+#	
+#	#using sbatch
+#	sbatch --job-name="parsort" -p atlas --exclusive --account=patellifolia \
+#	            -N 1 -n 48 --mem=368G -t 3-12:00:00 -o "stdout.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
+#	            --wrap="cd /90daydata/patellifolia/MitchSeq/bam/;
+#	                   time cut -d$'\t' -f1-2 "$v"x.merged.coverage | tail -n +2 | parsort -T ./tmpsort | uniq -c \
+#	                        | sed 's/^ *//g' | parsort -t' ' -T ./tmpsort -k1,1nr > sampledepth_"$v"x.txt; #221min, use ./tmpsort as tmpdir
+#	                   "
+
+time wc -l sampledepth_"$v"x.txt; #30s, total number of aligned positions: 122samples, 2166432985;4x 86 samples, 1240050847; 50wgbsx, 187197492; 4x, 2229188436
+
+
+^^^edited to here
+
+time grep ^122 sampledepth_"$v"x.txt | wc -l; #1 min, which positions have complete data. (122samples, 607458/2166432985 = 0.028%; 4x 86 samples, 949379/1240050847 = 0.08%; 50wgbsx, 210; 4x 50 samples,27719069/2229188436 = 1.2%; 1x 8 samples,1min15s,8901882/1156223734 = 0.77%; 3x 8 samples,3min,710648811/2110511192=34%; 5x 8 samples,4.5min,1670438498/2400210177=69%; 5x 14samples, 4min, 721819829/2400210177=30%)
+time cut -d' ' -f1 sampledepth_"$v"x.txt | parsort | uniq -c | sed 's/^ *//g' | parsort -t' ' -k2,2nr > depthhist_"$v"x.txt; #122 sample, 5min; 4x 86 sample, 3min ; 4x 46 min, print histogram of sample coverage
+
+
+
+cat depthhist_"$v"x.txt; 
+cut -d' ' -f1 depthhist_"$v"x.txt | awk '{s+=$1} END {print s}'; #sum of sites, as a check
+
+			122 samples
+			607458 122 <--607k loci have all samples
+			2774 121
+			1618 120
+			2024 119
+			2868 118
+			...
+			206972273 5
+			123560319 4
+			158585362 3
+			222333508 2
+			326161552 1
+
+			86 samples
+			949379 86 <--950k loci have all samples
+			13687 85
+			22930 84
+			13476 83
+			21992 82
+			...
+			35948993 5
+			479255366 4
+			76147672 3
+			90240546 2
+			147652821 1
+
+			50wgbsx
+			30237 237 <-- ~30K loci have all samples
+			120 234
+			152 233
+			...
+			20588310 3
+			20603888 2
+			124999082 1
+
+			4X, 50 samples
+			27719069 50
+			2670826 49
+			...
+			157782126 2
+			279072639 1
+
+#archive files on NAS
+cd /share/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample;
+rsync -aP pat.reeves@atlas-dtn.hpc.msstate.edu:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/bam/depthhist_122x.txt" .;
+cd /share/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample/bam;
+rsync -aP pat.reeves@atlas-dtn.hpc.msstate.edu:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/bam/122x.merged.bam*" .;
+rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/bam/122Hpx.merged.bam*" .;
+
+
+^^^URHERE on compute-0-12, this doesn't work from atlas, transferring from ceres
+
+
+
+
+### END COMBINE MAPS, GET STATS ###
+
+
+
+
+
+
+
+
+
+### MAP TRIMMED READS TO PI540631 ###
+
+# use bwa-mem to align each sample's reads to the reference genome, then sort using samtools
+# The path to the reference genome is /project/patellifolia/Bvulgaris/refgenomes/PI540631.fa.
+
+cd /project/patellifolia/Bvulgaris/refgenomes;
+module load samtools/1.19.2;
+module load bwa/0.7.17;
+time samtools faidx PI540631.fa; #2s
+time bwa index PI540631.fa; #10 min
+
+
+#map bbduk.sh adapter-trimmed paired reads to PI540631.fa reference
+mypp() { 
+       i=$1;
+       a=$(echo "$i" | rev | cut -d'/' -f1 | rev); #get file name exclusive of path
+       b=$(echo "$a" | sed 's/_R1/_R2/'); #make file name for read pair R2
+       ID=$(echo "$a" | cut -d_ -f1); #get brief ID string (looks like final sed above is irrelevant...)
+       readgroup="@RG\tID:$ID\tSM:$ID\tPL:illumina\tLB:na\tPU:na";
+
+       #bwa mem settings: -M, mark secondary alignments
+       #samtools view settings: -f 1, include read pairs
+       #                        -F 3852, exclude unmapped reads && reads whose mate or pair is unmapped && not primary alignment && read fails platform/vendor quality checks && read is PCR or optical duplicate && supplementary alignment
+       #                        -q 60, exclude alignments with mapq < 60
+
+       bwa mem -t 8 -M -R "$readgroup" $rwd/"$v".fa $wd/"$a" $wd/"$b" \
+           | samtools view --threads 8 -h -f 1 -F 3852 -q 60 \
+           | samtools sort --threads 8 -n -T tmp.$a -O SAM \
+           | samtools fixmate --threads 8 -m -r -O SAM - - \
+           | samtools sort --threads 8 -T tmp1.$a -O BAM \
+           | samtools markdup --threads 8 -r - $wd/$ID.bam; #stdout from bwa mem goes to samtools view for filtering,
+                                              # then samtools sort -n for sort by name
+                                              # then samtools fixmate -m -r to add mate scores and remove secondary and unmapped reads (this may have already be done by samtools view but there is no doc to indicate that these procedures are identical)
+                                              # then samtools sort for coordinate sorting
+                                              # then samtools markdup -r to remove PCR duplicates
+                                              # a coordinate sorted bam file is the result
+}
+export -f mypp;
+
+
+#set up to use PI540631 as a reference
+rwd="/project/patellifolia/Bvulgaris/refgenomes";
+export rwd; #reference file directory
+v="PI540631";
+export v;
+
+cd /90daydata/patellifolia/MitchSeq/duk;
+wd=$(pwd); export wd;
+
+#get a list of all the data sets to run
+#test
+b="Bvm64_R1.duk.fq.gz SRR10192986_R1.duk.fq.gz ";
+
+#production
+b=$(ls -lS *R1.duk.fq.gz | rev | cut -d' ' -f1 | rev | sed 's:^:/:' | sed "s:^:$wd:");  #submit largest to smallest
+#b=$(find "$wd" -name "*_R1.duk.fq.gz" | sort);
+
+for i in $b;
+  do sbatch --job-name="bwamem" -p atlas --account=patellifolia \
+       -N 1 -n 8 --mem=96G -t 4-00:00:00 -o "/dev/null" -e "stderr.%j.%N.%A.%a" \
+       --wrap="module load samtools/1.19.2;
+               echo "$i" 1>&2; \
+               time mypp $i;
+       "
+  done; #-n 8 --mem=96, 15 hrs average, 2.4 days for longest; -n 4 --mem=48G average about 33 hrs, the longest took 4 days, so this takes about a week in total
+
+
+#output from mapping step are files named like:
+# Bvm64.bam SRR10192987.bam
+
+
+#clean up
+mkdir ../bamxPI540631;
+mv *.bam ../bamxPI540631;
+rm stderr*;
+
+### END MAP TRIMMED READS TO PI540631 ###
+
+
+
+
