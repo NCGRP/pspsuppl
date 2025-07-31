@@ -80,26 +80,31 @@ wc -l PI540631.fa.fai; #2373 contigs in all
 awk -F$'\t' '$2>999999{print $0}' EL10.2.fa.fai | wc -l; #9 contigs > 1E6 bp, these are the pseudochromosomes
 awk -F$'\t' '$2>999999{print $0}' PI540631.fa.fai | wc -l; #141 contigs > 1E6 bp
 
-#use a slurm array for 9 jobs
-#--mem=96G gives oom errors starting after about 6 hours, try 120G. Use 360G for the few runs that oom with 120
-#most contigs seem to finish within 12 hrs
+#variant calling will be performed using all contigs from PI540631 > 1E6 bp as the reference
+
+#use a slurm array for 141 jobs
+#--mem=120G gives oom errors starting after about 6 hours. Use 360G. Many jobs still eventually
+#oom killed with 368G.
 
 #create files to organize sbatch array
 module load freebayes/1.3.6;
 v="EL10.2"; #root genome name
 v="PI540631"; #root genome name
 awk -F$'\t' '$2>999999{print $1,$2-1}' "$v".fa.fai | sed 's/ /:0-/' > "$v"_jobarray.slm; #designate range for contigs > 1E6
-mv "$v"_jobarray.slm /90daydata/patellifolia/MitchSeq;
-fasta_generate_regions.py "$v".fa.fai 100000 > "$v"_regions.txt; #create the regions, there are 5700, you will grep for a single contig's regions on each node
-mv "$v"_regions.txt /90daydata/patellifolia/MitchSeq;
+mv "$v"_jobarray.slm /90daydata/patellifolia/MitchSeq/vcf;
+mv "$v"_jobarray.slm /90daydata/patellifolia/MitchSeq/vcfxPI540631;
+fasta_generate_regions.py "$v".fa.fai 100000 > "$v"_regions.txt; #create the regions, there are 8333, you will grep for a single contig's regions on each node
+mv "$v"_regions.txt /90daydata/patellifolia/MitchSeq/vcf;
+mv "$v"_regions.txt /90daydata/patellifolia/MitchSeq/vcfxPI540631;
 
 
 
 #submit
-cd /90daydata/patellifolia/MitchSeq
+cd /90daydata/patellifolia/MitchSeq/vcfxPI540631;
 v="PI540631"; #root genome name
+#v="EL10.2"; #root genome name
 b="PI" #reference genome abbreviation "EL"[10.2] or "PI"[540631], to help locate the merged map file
-r=24N; #ploidy
+r=50; #ploidy
 
 #cleanup run settings
 sbatch --array 791-792 --job-name="fb24" -p ceres --account=patellifolia \
@@ -107,23 +112,43 @@ sbatch --array 791-792 --job-name="fb24" -p ceres --account=patellifolia \
 
 #normal settings:
 sbatch --array 1-9 --job-name="fb24" -p ceres --account=patellifolia \
-sbatch --array 1-2 --job-name="fb24" -p ceres --account=patellifolia \
-            -N 1 -n 12 --mem=240G -t 2-00:00:00 -o "stderr.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
+sbatch --array 1-141 --job-name="pifb24" -p ceres --account=patellifolia \
+sbatch --array 90-141 --job-name="pifb24" -p ceres --account=patellifolia \
+sbatch --array 1-89 --job-name="pifb24" -p scavenger --account=patellifolia \
+            -N 1 -n 18 --mem=368G -t 14-00:00:00 -o "stderr.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
             --wrap="module load freebayes/1.3.6;
-                    cd /90daydata/patellifolia/MitchSeq
-                    i=\$(head -\${SLURM_ARRAY_TASK_ID} jobarray.slm | tail -1); #get contig range for job
+                    cd /90daydata/patellifolia/MitchSeq/vcfxPI540631;
+                    i=\$(head -\${SLURM_ARRAY_TASK_ID} "$v"_jobarray.slm | tail -1); #get contig range for job
                     j=\$(echo \$i | cut -d: -f1); #get contig name
-                    k=\$(grep ^\$j":" regions.txt); #list of regions for this contig, to be passed to freebayes-parallel
+                    k=\$(grep ^\$j":" "$v"_regions.txt); #list of regions for this contig, to be passed to freebayes-parallel
                     echo \"\$k\"; #report to log
-                    time(freebayes-parallel <(echo \"\$k\") 12 \
+                    time(freebayes-parallel <(echo \"\$k\") 18 \
                               --fasta-reference=/home/pat.reeves/patellifolia/Bvulgaris/refgenomes/"$v".fa \
-                              --bam=bam/"$b"x.merged.bam \
-                              --ploidy 50 --pooled-discrete --hwe-priors-off --pooled-continuous \
+                              --bam=/90daydata/patellifolia/MitchSeq/bamxPI540631/"$b"x.merged.bam \
+                              --ploidy "$r" --pooled-discrete --hwe-priors-off --pooled-continuous \
                               --use-best-n-alleles=4 --limit-coverage=10240 \
                               --use-reference-allele --max-complex-gap=75 \
-                              > bam/"$v"_"$b"x_"$r"_\"\$i\"_fbp.vcf;)
+                              > /90daydata/patellifolia/MitchSeq/vcfxPI540631/"$v"_"$b"x_"$r"N_\"\$i\"_fbp.vcf;)
                    "
-^^^URHERE, edited to here
+
+#monitor runs
+while(true); do echo -n "PI "; wc -l *.vcf | grep total; echo -n "EL "; wc -l ../vcf/*.vcf | grep total; sleep 600; done;
+
+^^^URHERE on ceres
+
+
+
+^^^URHERE, testing this on atlas
+#this test processed 19Mbp per chromosome in 48 hrs. Longest chromosome is 72Mbp which should then
+$take ~8 days based on 12 cores.  Try with additional memory and 18 cores
+
+#sbatch array to run each 100Kbp region separately
+
+^^^URHERE, create this
+
+
+
+
 
 
 #most runs take ~500 min, look for oom errors:

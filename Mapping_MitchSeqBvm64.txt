@@ -376,7 +376,8 @@ rm stderr*;
 
 
 
-### COMBINE MAPS, GET STATS ###
+
+### COMBINE MAPS, GET STATS, EL10.2 ###
 
 #Combine sorted, deduped bam files, index files, then calculate depth
 #The merged bam file is important for variant calling later, so should be archived.
@@ -393,22 +394,29 @@ mkdir /90daydata/patellifolia/MitchSeq/bam/tmpsort; #make a folder with ~unlimit
 
 #using sbatch
 sbatch --job-name="merge" -p atlas --exclusive --account=patellifolia \
-            -N 1 -n 48 --mem=368G -t 3-12:00:00 -o "stdout.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
+            -N 1 -n 48 --mem=368G -t 6-00:00:00 -o "stdout.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
             --wrap="cd /90daydata/patellifolia/MitchSeq/bam/;
-                   time sambamba merge -t48 -p "$v"x.merged.bam [BS][Rv]*.bam;  #takes ~15 hours
+                   time sambamba merge -t48 -p "$v"x.merged.bam [BS][Rv]*.bam;  #takes ~13 hours
                    time sambamba depth base -t48 "$v"x.merged.bam -o "$v"x.merged.coverage; #~2.4 days
                    time cut -d$'\t' -f1-2 "$v"x.merged.coverage | tail -n +2 | parsort -T ./tmpsort | uniq -c \
                         | sed 's/^ *//g' | parsort -t' ' -T ./tmpsort -k1,1nr > sampledepth_"$v"x.txt; #x min, use ./tmpsort as tmpdir
                    "
 
-^^^URHERE, submitted
+#use samtools to merge on ceres
+sbatch --job-name="merge" -p atlas --exclusive --account=patellifolia \
+            -N 1 -n 48 --mem=368G -t 6-00:00:00 -o "stdout.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
+            --wrap="cd /90daydata/patellifolia/MitchSeq/bam/;
+                   module load samtools/1.17;
+                   time samtools merge -@48 -o "$v"x.merged.bam [BS][Rv]*.bam;  #takes ~xx hours
+                   time samtools index -@47 -o "$v"x.merged.bam.bai "$v"x.merged.bam; #3hrs 10 min
+                   "
 
-^^^^URHERE, need to combine maps
 
 
 
 
 
+^^^URHERE, EL10.2 skipped below for now 7/21/25
 
 #print out the sample depth at each mapped position (how many samples map to the position?)
 #	cd /90daydata/patellifolia/MitchSeq/bam;
@@ -488,14 +496,10 @@ rsync -aP pat.reeves@atlas-dtn.hpc.msstate.edu:"/90daydata/patellifolia/Hpusillu
 rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/bam/122Hpx.merged.bam*" .;
 
 
-^^^URHERE on compute-0-12, this doesn't work from atlas, transferring from ceres
 
 
 
-
-### END COMBINE MAPS, GET STATS ###
-
-
+### END COMBINE MAPS, GET STATS, EL10.2 ###
 
 
 
@@ -556,6 +560,16 @@ wd=$(pwd); export wd;
 #test
 b="Bvm64_R1.duk.fq.gz SRR10192986_R1.duk.fq.gz ";
 
+#mop up
+cd /90daydata-old/patellifolia/MitchSeq/duk;
+b="SRR13203980_R1.duk.fq.gz SRR10224892_R1.duk.fq.gz SRR10224898_R1.duk.fq.gz SRR10224886_R1.duk.fq.gz SRR10224870_R1.duk.fq.gz SRR10224887_R1.duk.fq.gz SRR10224906_R1.duk.fq.gz SRR12806835_R1.duk.fq.gz SRR10224885_R1.duk.fq.gz SRR12806832_R1.duk.fq.gz SRR10224914_R1.duk.fq.gz SRR10224911_R1.duk.fq.gz SRR10224912_R1.duk.fq.gz SRR12806881_R1.duk.fq.gz";
+for i in $b;
+  do j=$(echo "$i" | sed 's/_R1/_R*/');
+    rsync -aP $j /90daydata/patellifolia/MitchSeq/tmp;
+  done;
+
+
+
 #production
 b=$(ls -lS *R1.duk.fq.gz | rev | cut -d' ' -f1 | rev | sed 's:^:/:' | sed "s:^:$wd:");  #submit largest to smallest
 #b=$(find "$wd" -name "*_R1.duk.fq.gz" | sort);
@@ -567,7 +581,7 @@ for i in $b;
                echo "$i" 1>&2; \
                time mypp $i;
        "
-  done; #-n 8 --mem=96, 15 hrs average, 2.4 days for longest; -n 4 --mem=48G average about 33 hrs, the longest took 4 days, so this takes about a week in total
+  done; #-n 8 --mem=96, 24 hrs average, 77 hrs for longest;
 
 
 #output from mapping step are files named like:
@@ -582,5 +596,119 @@ rm stderr*;
 ### END MAP TRIMMED READS TO PI540631 ###
 
 
+
+
+
+
+
+
+
+
+### COMBINE MAPS, GET STATS, PI540631 ###
+
+#Combine sorted, deduped bam files, index files, then calculate depth
+#The merged bam file is important for variant calling later, so should be archived.
+#The resulting depth files are often large and not very useful, except for their summary stats, do not back up.
+#sambamba version 0.8.2 on ceres
+
+#merge all samples
+v="PI"; #name for data set, based on reference genome abbreviation "EL"[10.2] or "PI"[540631]
+cd /90daydata/patellifolia/MitchSeq/bamxPI540631;
+
+#set up for parsort
+mkdir /90daydata/patellifolia/MitchSeq/bamxPI540631/tmpsort; #make a folder with ~unlimited storage to hold tmp sort files
+
+#using sbatch
+sbatch --job-name="merge" -p atlas --exclusive --account=patellifolia \
+            -N 1 -n 48 --mem=368G -t 8-00:00:00 -o "stdout.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
+            --wrap="cd /90daydata/patellifolia/MitchSeq/bamxPI540631/;
+                   time sambamba merge -t48 -p "$v"x.merged.bam [BS][Rv]*.bam;  #takes ~15 hours
+                   time sambamba depth base -t48 "$v"x.merged.bam -o "$v"x.merged.coverage; #~2.4 days
+                   time cut -d$'\t' -f1-2 "$v"x.merged.coverage | tail -n +2 | parsort -T ./tmpsort | uniq -c \
+                        | sed 's/^ *//g' | parsort -t' ' -T ./tmpsort -k1,1nr > sampledepth_"$v"x.txt; #x min, use ./tmpsort as tmpdir
+                   "
+
+#use samtools to merge on ceres
+sbatch --job-name="merge" -p ceres --exclusive --account=patellifolia \
+            -N 1 -n 48 --mem=368G -t 7-00:00:00 -o "stdout.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
+            --wrap="cd /90daydata/patellifolia/MitchSeq/bamxPI540631/;
+                   module load samtools/1.17;
+                   time samtools merge -@47 -o "$v"x.merged.bam [BS][Rv]*.bam;  #takes ~15 hours
+                   time samtools index -@47 -o "$v"x.merged.bam.bai "$v"x.merged.bam; #takes ~1 hour
+                   "
+
+^^^URHERE, ceres samtools merge complete 7/23, below calculation of stats performed with 
+sambamba coverage from atlas
+
+
+
+
+
+#print out the sample depth at each mapped position (how many samples map to the position?)
+#	cd /90daydata/patellifolia/MitchSeq/bam;
+#	v="EL"; #name for data set, based on reference genome abbreviation "EL"[10.2] or "PI"[540631]
+#	
+#	#with parsort
+#	mkdir /90daydata/patellifolia/MitchSeq/bam/tmpsort; #make a folder with ~unlimited storage to hold tmp sort files
+#	
+#	#using sbatch
+#	sbatch --job-name="parsort" -p atlas --exclusive --account=patellifolia \
+#	            -N 1 -n 48 --mem=368G -t 3-12:00:00 -o "stdout.%j.%N.%A.%a" -e "stderr.%j.%N.%A.%a" \
+#	            --wrap="cd /90daydata/patellifolia/MitchSeq/bam/;
+#	                   time cut -d$'\t' -f1-2 "$v"x.merged.coverage | tail -n +2 | parsort -T ./tmpsort | uniq -c \
+#	                        | sed 's/^ *//g' | parsort -t' ' -T ./tmpsort -k1,1nr > sampledepth_"$v"x.txt; #221min, use ./tmpsort as tmpdir
+#	                   "
+
+time wc -l sampledepth_"$v"x.txt; #30s, total number of aligned positions: 450539042
+
+
+
+
+time grep ^197 sampledepth_"$v"x.txt | wc -l; #1 min, which positions have complete data. (197 samples, 298841099/450539042 = 66%)
+time cut -d' ' -f1 sampledepth_"$v"x.txt | parsort | uniq -c | sed 's/^ *//g' | parsort -t' ' -k2,2nr > depthhist_"$v"x.txt; #3 min, print histogram of sample coverage
+
+
+cat depthhist_"$v"x.txt; 
+cut -d' ' -f1 depthhist_"$v"x.txt | awk '{s+=$1} END {print s}'; #sum of sites, as a check
+
+			197 samples
+			298841099 197 <--299M loci have all samples aligned
+			78109 196
+			1528 195
+			769 194
+			936 193
+			9621 192
+			680 191
+			19651 190
+			211 189
+			16608 188
+			...
+			2559165 10
+			1252971 9
+			4254468 8
+			3949843 7
+			939653 6
+			7217269 5
+			17840998 4
+			4166291 3
+			4207579 2
+			19184618 1 <--19M loci have only one sample in the map
+
+		
+
+#archive files on juno
+#archive raw bam files, merged file not useful for grenedalf
+ssh nal-dtn.scinet.usda.gov;
+cd /LTS/project/patellifolia/MitchSeqMS/mapstoPI540631;
+rsync -aP pat.reeves@atlas-dtn.hpc.msstate.edu:"/90daydata/patellifolia/MitchSeq/bamxPI540631/depthhist_PIx.txt" .;
+cd /LTS/project/patellifolia/MitchSeqMS/mapstoPI540631/bam;
+rsync -aP pat.reeves@atlas-dtn.hpc.msstate.edu:"/90daydata/patellifolia/MitchSeq/bamxPI540631/"[BS][vR]*.bam .;
+
+
+
+^^^URHERE
+
+
+### END COMBINE MAPS, GET STATS, PI540631 ###
 
 

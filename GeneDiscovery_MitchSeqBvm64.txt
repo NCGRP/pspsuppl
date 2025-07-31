@@ -23,7 +23,7 @@ echo 'mono,1150
 multi,3850' > zOUpoolsizes.txt
 
 #calculate Fst at every position in genome
-cd /90daydata/patellifolia/MitchSeq/bamscaf; #on atlas
+cd /90daydata/patellifolia/MitchSeq/bam; #on atlas
 b=$(cut -d, -f1 zOUgrouptable.txt | sed 's/$/.bam/' | tr '\n' ' '); #list of all bam files involved in comparison
 p=monomultiBvWIP2; #file prefix
 sbatch --job-name="gdalffst" -p atlas --account=patellifolia \
@@ -49,11 +49,25 @@ sbatch --job-name="gdalffst" -p atlas --account=patellifolia \
      "
 #225 min
 
+time wc -l monomultiBvWIP2_fstfst.csv; #569269539 genomic positions were interrogated for fst
 
 #output file is large, split into chromosomes, remove bp with 'nan' for Fst,
 #reduce to columns 1 (start) and 13 (Fst)
 c="NC_079202.1 NC_079203.1 NC_079204.1 NC_079205.1 NC_079206.1 NC_079207.1 NC_079208.1 NC_079209.1 NC_079210.1";
 time echo "$c" | tr ' ' '\n' | parallel --jobs 9 'grep ^{}, monomultiBvWIP2_fstfst.csv | cut -d, -f2,13 | grep -v ,nan$ > {}_monomulti1bp.csv'; #8 min
+
+wc -l NC*; #sites with fst values
+			  47553723 NC_079202.1_monomulti1bp.csv
+			  43553486 NC_079203.1_monomulti1bp.csv
+			  44124646 NC_079204.1_monomulti1bp.csv
+			  47826875 NC_079205.1_monomulti1bp.csv
+			  52143463 NC_079206.1_monomulti1bp.csv
+			  52609648 NC_079207.1_monomulti1bp.csv
+			  44949294 NC_079208.1_monomulti1bp.csv
+			  47339860 NC_079209.1_monomulti1bp.csv
+			  41649486 NC_079210.1_monomulti1bp.csv
+			 421750481 total
+
 
 #rsync back to nas
 cd /Volumes/Public/Data/PatReeves/MitchSeq/SignatureOfSelection/grenedalf/fst/monomulti;
@@ -134,16 +148,59 @@ par=origpar #restore the original settings
 #do some statistics to see how our Fst values rate for gene discovery compared to 
 #Jung's p-values
 
-time wc -l monomultiBvWIP2_fstfst.csv; #3min on NAS, 569269540 SNPs, this is a lot, perhaps I should filter by MAF?
 time cat NC_0792*.1_monomulti1bp.csv > 2colAll.csv; #2m49s, get a single file with all Fst values
 time shuf 2colAll.csv | head -10000 > 2col10Kran.csv; #2m21s
 time cut -d, -f2 2colAll.csv > 1colAll.csv; #7min
 time LC_ALL=C gsort -S 50% --parallel=8 -gr 1colAll.csv > 1colAllsorted.csv; #43min
+wc -l 1colAllsorted.csv; #421750481
 rm 1colAll.csv;
+
 grep -n ^'0.672754'$ 1colAllsorted.csv; #this is the value for Jung SNP NC_079205.1:64590348
-	603:0.672754 <--there is only one such entry, at row 603/569269540
+	603:0.672754 <--there is only one such entry, at row 603/421750481
 
+nl -nln 1colAllsorted.csv | grep -m1 -n ^0.4 1colAllsorted.csv; #find number of Fst values larger than 0.5
+	2928:0.499959 <--there are 2927 Fst values, of ~422M total, larger than 0.5
 
+#set all negative Fst values to zero to compensate for minor glitches in the
+#"unbiased" pool-seq estimator of Nei's Fst selected in grenedalf
+sed 's/^-0.*$/0/' 1colAllsorted.csv > 1colAllsortedNoNeg.csv;
+
+#randomly sample ~10% of the Fst values to calculate the mean and sd, ~3 min
+time awk '{
+  sum = 0;
+  M = 0;
+  S = 0;
+  for (k=1; k <= NF; k++) {
+	sum += $k;
+	x = $k;
+	oldM = M;
+	M = M + ((x - M)/k);
+	S = S + (x - M)*(x - oldM);
+  }
+  var = S/(NF - 1);
+  print "n=" NF " mean=" sum/(NF) " var=" var " sd=" sqrt(var);
+}' <(shuf 1colAllsortedNoNeg.csv | head -50000000 | tr '\n' ' ')
+
+			n=50000000 mean=0.000880279 var=7.64201e-05 sd=0.00874186 <--includes negative Fst values
+			n=50000000 mean=0.00108649 var=7.63071e-05 sd=0.00873539
+			
+#calculate median
+head -210875240 1colAllsortedNoNeg.csv | tail -1; #median = 0
+
+#determine number of sites with Fst > 0.05 on each chromosome
+ls *_monomulti1bp.csv | tr ' ' '\n' | parallel 'echo -n {}" "; awk -F, '\''$2>0.5{print $0}'\'' {} | wc -l';
+			NC_079202.1_monomulti1bp.csv      148
+			NC_079203.1_monomulti1bp.csv       96
+			NC_079204.1_monomulti1bp.csv      333
+			NC_079205.1_monomulti1bp.csv     1366
+			NC_079206.1_monomulti1bp.csv      247
+			NC_079207.1_monomulti1bp.csv      471
+			NC_079208.1_monomulti1bp.csv      141
+			NC_079209.1_monomulti1bp.csv       78
+			NC_079210.1_monomulti1bp.csv       47
+
+  
+  
 
 
 
