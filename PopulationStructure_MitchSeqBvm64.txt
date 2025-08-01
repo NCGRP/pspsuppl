@@ -497,16 +497,25 @@ plot(ss[,3:4], col="black", bg=ss$dcolor, pch=21, cex=3, xlab="PCA3", ylab="PCA4
 
 
 #color unscaled pca by dapc clusters
-#rm(Ydapc1)
-gc()
+gc() #clean up garbage
 
 C.dudi = dudi.pca(C, center = TRUE, scale = FALSE, scannf = FALSE, nf=maxRank) #dapc uses scale=FALSE
 
-
-^^^URHERE
-
 s=C.dudi$li
+type0=rownames(s)
+
+#substitute "hybrid" for 6 "sugar" type accessions PI687276 PI655307 PI655308 PI655305 PI564243 PI654357
+hybrids=c("PI687276","PI655307","PI655308","PI655305","PI564243","PI654357")
+for(i in hybrids) {
+  type0=sub(paste(i,"_sugar",sep=""), paste(i,"_hybrid",sep=""), type0)
+}
+
+#convert types to color codes
+type1=strsplit(type0, split="_", fixed = TRUE)
+type=sapply(type1,"[",2) #retrieve the second piece of the split string
+
 ss=s #copy pca matrix to new variable
+rownames(ss)=type0
 ss$dcolor=dapccols
 
 #plot pca axes 1x2 colored by dapc assignment
@@ -516,12 +525,11 @@ text(x=ss[,1], y=ss[,2], labels=rownames(ss), cex=0.65)
 plot(ss[,3:4], col="black", bg=ss$dcolor, pch=21, cex=3, xlab="PCA3", ylab="PCA4")
 
 
+#print out a table of the dapc partition with the corrected hybrid names
+partition=colindex #make a single data frame holding the partition with correct labels
+partition$correctnames=rownames(ss)
+write.table(partition, 'dapcpartition_Rexport.txt', append=FALSE)
 
-
-
-
-as.factor(Ydapc1$posterior)
-gsub(1,2,Ydapc1$posterior[,2]
 
 
 ### END R CODE TO PERFORM PCA ON FREQUENCIES ###
@@ -529,6 +537,29 @@ gsub(1,2,Ydapc1$posterior[,2]
 
 
 
+### PROCESS DAPC PARTITION ###
+
+cd /Volumes/Public/Data/PatReeves/MitchSeq/GrenedalfToDAPC;
+sed 's/\"//g' dapcpartition_Rexport.txt | tail -n+2 | awk -F' ' '{print $3" "$2}' \
+  | sed 's/_/ /' | awk -F' ' '{print $2" "$1" "$3}' | sort -t' ' -k3,3n -k1,1 > dapcpartition.tmp;
+
+#get breeding program
+pi=$(cut -d' ' -f2 dapcpartition.tmp);
+pi_prog=$(head -1 ms197_nonan_mc2_maf0.95_3000k.renamedPROG.csv | tr ' ' '\n' | tail -n+2); #pi_prog labels
+pi_prog_ordered=$(for i in $pi;
+                    do echo "$pi_prog" | grep ^"$i"_ | sed 's/_/ /';
+                    done;)
+paste -d' ' dapcpartition.tmp <(echo "$pi_prog_ordered") | awk -F' ' '{print $1" "$5" "$2" "$3}' \
+  | sort -t' ' -k4,4n -k1,1 -k2,2 -k3,3 | tr ' ' '\t' > dapcpartition.txt;
+rm dapcpartition.tmp
+
+#paste dapcpartition.txt into Excel as a table
+
+^^^URHERE
+
+
+
+### END PROCESS DAPC PARTITION ###
 
 
 
