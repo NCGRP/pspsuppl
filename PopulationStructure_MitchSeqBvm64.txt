@@ -520,7 +520,15 @@ ss$dcolor=dapccols
 
 #plot pca axes 1x2 colored by dapc assignment
 plot(ss[,1:2], col="black", bg=ss$dcolor, pch=21, cex=3, xlab="PCA1", ylab="PCA2")
+points(ss[102,1:2], col = "black", bg="white", pch = 21, cex = 3)
+
+plot(ss[102,1:2], col="black", bg=ss$dcolor, pch=21, cex=5, xlab="PCA1", ylab="PCA2")
 text(x=ss[,1], y=ss[,2], labels=rownames(ss), cex=0.65)
+
+
+
+
+
 
 plot(ss[,3:4], col="black", bg=ss$dcolor, pch=21, cex=3, xlab="PCA3", ylab="PCA4")
 

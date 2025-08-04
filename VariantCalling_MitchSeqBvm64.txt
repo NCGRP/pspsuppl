@@ -134,17 +134,33 @@ sbatch --array 1-89 --job-name="pifb24" -p scavenger --account=patellifolia \
 #monitor runs
 while(true); do echo -n "PI "; wc -l *.vcf | grep total; echo -n "EL "; wc -l ../vcf/*.vcf | grep total; sleep 600; done;
 
-^^^URHERE on ceres
+^^^URHERE on ceres and atlas
 
 
 
-^^^URHERE, testing this on atlas
-#this test processed 19Mbp per chromosome in 48 hrs. Longest chromosome is 72Mbp which should then
-$take ~8 days based on 12 cores.  Try with additional memory and 18 cores
 
-#sbatch array to run each 100Kbp region separately
 
-^^^URHERE, create this
+
+
+
+#collate output of variant calling
+#repeat on ceres and atlas
+cd /90daydata/patellifolia/MitchSeq/vcfxPI540631;
+hpc="atlas"; #"atlas"
+mkdir vcfxPI540631complete"$hpc";
+cp *.vcf vcfxPI540631complete"$hpc";
+cd vcfxPI540631complete"$hpc";
+find . -type f -size 0b -delete; #remove empty files
+time grep -A100000000 CHROM *.vcf | tail -n+2 | sed '/^--$/d' | awk -F$'\t' '{print NF}' | sort | uniq -c; #do all rows have the same number of columns, suggesting they are not corrupted?
+			 110512 206 ceres
+			 168396 206 atlas
+			 
+
+
+
+
+
+
 
 
 
