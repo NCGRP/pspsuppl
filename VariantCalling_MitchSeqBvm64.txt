@@ -68,8 +68,6 @@ cd /90daydata/patellifolia/MitchSeq/bam; #on ceres
 time rsync -aP pat.reeves@atlas-dtn.hpc.msstate.edu:"/90daydata/patellifolia/MitchSeq/bam/[BS][vR]*.bam" .; #this transfer is going to take days
 
 
-^^^URHERE, you need a merged bam file, not the individual files, for freebayes
-
 
 
 
@@ -134,7 +132,10 @@ sbatch --array 1-89 --job-name="pifb24" -p scavenger --account=patellifolia \
 #monitor runs
 while(true); do echo -n "PI "; wc -l *.vcf | grep total; echo -n "EL "; wc -l ../vcf/*.vcf | grep total; sleep 600; done;
 
-^^^URHERE on ceres and atlas
+
+
+
+### END CALL VARIANTS, FREEBAYES ###
 
 
 
@@ -155,82 +156,105 @@ time grep -A100000000 CHROM *.vcf | tail -n+2 | sed '/^--$/d' | awk -F$'\t' '{pr
 			 110512 206 ceres
 			 168396 206 atlas
 			 
+#for output from both hpcs, use the one with more calls
+rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/MitchSeq/vcfxPI540631/vcfxPI540631completeceres" .;
+mkdir vcfxPI540631completecombined;
+b=$(for i in $(ls vcfxPI540631completeceres/*.vcf | rev | cut -d'/' -f1 | rev);
+  do echo -n "ceres ";
+    ls -l vcfxPI540631completeceres/"$i";
+    echo -n "atlas ";
+    ls -l vcfxPI540631completeatlas/"$i";
+    echo "__"
+  done;)
+echo "$b"; #manually parse this to determine the larger file to keep
 
+#files that are larger on atlas are:
+atlas -rw-r----- 1 pat.reeves proj-patellifolia 46064213 Aug  4 16:05 vcfxPI540631completeatlas/PI540631_PIx_50N_JBLYNN010000011.1:0-14567013_fbp.vcf
+atlas -rw-r----- 1 pat.reeves proj-patellifolia 30921855 Aug  4 16:05 vcfxPI540631completeatlas/PI540631_PIx_50N_JBLYNN010000012.1:0-11511671_fbp.vcf
+atlas -rw-r----- 1 pat.reeves proj-patellifolia 104949602 Aug  4 16:05 vcfxPI540631completeatlas/PI540631_PIx_50N_JBLYNN010000013.1:0-9637097_fbp.vcf
+atlas -rw-r----- 1 pat.reeves proj-patellifolia 119718863 Aug  4 16:05 vcfxPI540631completeatlas/PI540631_PIx_50N_JBLYNN010000017.1:0-8554982_fbp.vcf
+atlas -rw-r----- 1 pat.reeves proj-patellifolia 80044807 Aug  4 16:05 vcfxPI540631completeatlas/PI540631_PIx_50N_JBLYNN010000019.1:0-7949356_fbp.vcf
+atlas -rw-r----- 1 pat.reeves proj-patellifolia 4759056 Aug  4 16:05 vcfxPI540631completeatlas/PI540631_PIx_50N_JBLYNN010000020.1:0-7893004_fbp.vcf
+atlas -rw-r----- 1 pat.reeves proj-patellifolia 118511239 Aug  4 16:05 vcfxPI540631completeatlas/PI540631_PIx_50N_JBLYNN010000021.1:0-7785470_fbp.vcf
+atlas -rw-r----- 1 pat.reeves proj-patellifolia 20936695 Aug  4 16:05 vcfxPI540631completeatlas/PI540631_PIx_50N_JBLYNN010000027.1:0-5569141_fbp.vcf
+atlas -rw-r----- 1 pat.reeves proj-patellifolia 19298896 Aug  4 16:05 vcfxPI540631completeatlas/PI540631_PIx_50N_JBLYNN010000030.1:0-5926819_fbp.vcf
 
-
-
-
-
-
-
-
-
-
-
-#most runs take ~500 min, look for oom errors:
-cd /90daydata/patellifolia/Hpusillum/WGS/SkimSeq;
-grep oom stderr* | cut -d: -f1 | rev | cut -d. -f1 | rev | tr '\n' ','; #no oom errors with --mem=240G
-
-#if there are oom errors, insert list from above into new sbatch array with increased memory --mem=360G.
-
-#combine vcf files from individual contigs
-mv bam/*.vcf vcf/24N;
-cd vcf/24N;
-
-#confirm the header is the same on all files, ~8 minutes. This has been shown once, so you can probably skip it
-time z=$(for i in OKref_122x_24N_ctg.*.vcf;
-  do echo -n "$i ";
-    grep -B10000000 CHROM "$i" | grep -v '##fileDate=' | grep -v '##commandline=' | md5sum;
+#copy files from ceres that are larger than, or were not run on atlas, to the combined complete folder
+for i in $(ls vcfxPI540631completeceres/*.vcf | rev | cut -d'/' -f1 | rev);
+  do c=$(wc -c vcfxPI540631completeceres/"$i" | cut -d' ' -f1); #size of output from ceres
+    a=$(wc -c vcfxPI540631completeatlas/"$i" | cut -d' ' -f1); #size of output from atlas
+    if [[ $a == "" ]]; then a=0; fi; #set to zero if file wasn't analyzed
+    if (( $c > $a ));
+    then echo "c=,$c, a=,$a,";
+      cp -i vcfxPI540631completeceres/"$i" vcfxPI540631completecombined; #-i will let you know if it has to overwrite, in which case something is wrong
+    fi;
   done;
-);
-echo "$z" | cut -d' ' -f2 | sort | uniq -c;
+  
+#copy files from atlas that are larger than, or were not run on ceres, to the combined complete folder
+for i in $(ls vcfxPI540631completeatlas/*.vcf | rev | cut -d'/' -f1 | rev);
+  do c=$(wc -c vcfxPI540631completeceres/"$i" | cut -d' ' -f1); #size of output from ceres
+    a=$(wc -c vcfxPI540631completeatlas/"$i" | cut -d' ' -f1); #size of output from atlas
+    if [[ $c == "" ]]; then c=0; fi; #set to zero if file wasn't analyzed
+    if (( $a > $c ));
+    then echo "c=,$c, a=,$a,";
+      cp -i vcfxPI540631completeatlas/"$i" vcfxPI540631completecombined; #-i will let you know if it has to overwrite, in which case something is wrong
+    fi;
+  done;
+
+#verify some numbers
+ls vcfxPI540631completecombined/*.vcf | wc -l; #83
+ls vcfxPI540631completeceres/*.vcf | wc -l; #36
+ls vcfxPI540631completeatlas/*.vcf | wc -l; #66
+ls vcfxPI540631complete[ac][te][lr]*/*.vcf | cut -d'/' -f2 | sort | uniq -c | grep ' 2 ' | wc -l; #19 data sets were processed by both hpcs. 66+36=102-83=19
 
 
 #obtain a generic header for the combined vcf
-h=$(grep -B100000000 CHROM OKref_122x_24N_ctg.000951F_1:0-1001728_fbp.vcf | grep -v '##fileDate=' | grep -v '##commandline=');
+cd vcfxPI540631completecombined/;
+h=$(grep -B100000000 CHROM PI540631_PIx_50N_JBLYNN010000076.1:0-3226871_fbp.vcf | grep -v '##fileDate=' | grep -v '##commandline=');
 
 #combine the genotype sections of the individual vcf files, in order, serial
-b=$(ls OKref_122x_24N_ctg.*.vcf | sort -t'.' -k2,2n);
+b=$(ls PI540631_PIx_50N_*.vcf | sort -t'_' -k4,4n);
 
-fn="OKref_122x_24N_fbp.vcf";
+fn="PI540631_PIx_50N_fbp.vcf";
 echo "$h" > "$fn"; #add header to combined file
 n=1;
 time for i in $b;
-  do echo "$n/916 $i";
+  do echo "$n/83 $i";
     grep -A1000000000 CHROM "$i" | tail -n+2 >> "$fn";
     n=$(( $n + 1 ));
-  done; #10min, produces a 205GB file
+  done; #11s, produces a 4.1GB file
 
-
-#combine the genotype sections of the individual vcf files, in order, parallel (unclear if this is any faster on ceres)
-fn="OKref_122x_24N_fbp.vcf"; export fn;
-echo "$h" > "$fn"; #add header to combined file
-time echo "$b" | parallel --jobs 24 --keep-order --env fn 'grep -A1000000000 CHROM {} | tail -n+2 >> '"$fn";
 
 
 #test whether the combine step worked, or is corrupted
-time col1=$(awk -F$'\t' '{print $1}' "$fn" | uniq); #10min
-col2=$(echo "$col1" | grep -A1000000000 CHROM | sort -u); #this should have exactly 916 distinct contig names
+time col1=$(awk -F$'\t' '{print $1}' "$fn" | uniq); #7s
+col2=$(echo "$col1" | grep -A1000000000 CHROM | sort -u); #this should have exactly 83 distinct contig names plus the #CHROM header
+echo "$col2";
+
+#how many variants are recovered from 83 contigs > 1Mbp?
+time grep -A1000000000 CHROM "$fn" | tail -n+2 | wc -l; #3s, 244845 polyploid variants called
 
 
-#how many variants are recovered from 916 contigs > 1Mbp?
-time grep -A1000000000 CHROM "$fn" | wc -l; #30 min, 32292076 polyploid variants called
 
-##end run on ceres##
+
+
+
+
+
+
 
 
 
 
 #calculate descriptive stats for quality values
-cd /90daydata/patellifolia/Hpusillum/WGS/SkimSeq/vcf/24N;
-grep -m1 -n CHROM OKref_122x_2N_fbp.vcf; #CHROM on line 3261
+cd /90daydata/patellifolia/MitchSeq/vcfxPI540631/vcfxPI540631completecombined;
+grep -m1 -n CHROM PI540631_PIx_50N_fbp.vcf; #CHROM on line 2432
 
 #calculate quantity and quality stats
-v=OKref;
-b=122;
-r=2N;
-r=24N;
-time cut -d$'\t' -f6 "$v"_"$b"x_"$r"_fbp.vcf | tail -n+3260 | tr '\n' ' ' > a.txt; #list of quality values, 13 min
+v=PI540631;
+b=PI;
+r=50N;
+time cut -d$'\t' -f6 "$v"_"$b"x_"$r"_fbp.vcf | tail -n+2433 | tr '\n' ' ' > a.txt; #list of quality values, 8s
 time cat a.txt | tr ' ' '\n' | cut -d. -f1 | sort | uniq -c | awk '{$1=$1;print}' | sort -t' ' -k2,2nr > qualdist_"$v"_"$r".txt; #distribution of quality values, 14s
 
 
@@ -266,24 +290,13 @@ awk '{
 			stats:     n=29966534 mean=707.547 var=2.25598e+06 sd=1501.99    <--Hp skimseq, 24N, 86 samples, inc other species
 			stats:     n=197014198 mean=577.931 var=6.79924e+06 sd=2607.54   <--Hp skimseq, 2N, 122 samples, inc other species
 			stats:     n=32292075 mean=916.721 var=4.07897e+06 sd=2019.65    <--Hp skimseq, 24N, 122 samples, inc other species
+			stats:     n=244845 mean=22049.7 var=4.74715e+09 sd=68899.6      <--Mitchseq, 50N, 197 samples, very high quality average quality values compared to other data sets
 
 
 
 
 #back up
-cd /share/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample;
-rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/vcf/qualdist*" .;
-cd /share/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample/vcf;
-rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/vcf/OKref_122x_2N_fbp.vcf" .; #backup to NAS.  This file is ~1TB, don't back it up since it takes only 36 hours to reconstruct.
+cd /Volumes/Public/Data/PatReeves/telework/ChrisRichards/Bm64/M+/forMS;
+rsync -aP pat.reeves@atlas-login.hpc.msstate.edu:"/90daydata/patellifolia/MitchSeq/vcfxPI540631/vcfxPI540631completecombined/qualdist*" .;
+rsync -aP pat.reeves@atlas-login.hpc.msstate.edu:"/90daydata/patellifolia/MitchSeq/vcfxPI540631/vcfxPI540631completecombined/PI540631_PIx_50N_fbp.vcf" .;
 
-rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/vcf/24N/qualdist_OKref_24N.txt" .;
-cd /share/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample/vcf/24N;
-rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/vcf/24N/OKref_122x_24N_fbp.vcf" .; #backup to NAS. This file is 200GB, back it up since it takes a week or more to reconstruct
-
-
-
-
-
-
-
-### END CALL VARIANTS, FREEBAYES ###

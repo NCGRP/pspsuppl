@@ -1,107 +1,130 @@
 
 ### BEGIN SUBSET WITH >1E6bp CONTIGS ###
 
-#stats for variant data
-			stats:     n=171805466 mean=472.393 var=4.07986e+06 sd=2019.87   <--Hp skimseq, 2N, 86 samples, inc other species
-			stats:     n=29966534 mean=707.547 var=2.25598e+06 sd=1501.99    <--Hp skimseq, 24N, 86 samples, inc other species
-			stats:     n=197014198 mean=577.931 var=6.79924e+06 sd=2607.54   <--Hp skimseq, 2N, 122 samples, inc other species
-			stats:     n=32292075 mean=916.721 var=4.07897e+06 sd=2019.65    <--Hp skimseq, 24N, 122 samples, inc other species
-
 #start with the dataset PI540631_PIx_50N_fbp.vcf.
-cd /90daydata/patellifolia/MitchSeq/vcf;
-v="EL10.2"; #root genome name
-b="EL"; #reference genome abbreviation "EL"[10.2] or "PI"[540631], to help locate the merged map file
+cd /90daydata/patellifolia/MitchSeq/vcfxPI540631/vcfxPI540631completecombined;
+v="PI540631"; #root genome name
+b="PI"; #reference genome abbreviation "EL"[10.2] or "PI"[540631], to help locate the merged map file
 p=50; #ploidy
-fn="$v"_"$b"x_"$p""N_fbp; #file prefix
-p=50; #ploidy
-grep -n -m1 CHROM "$fn".vcf; #CHROM is on l3259, so genotypes start on l3260
+fn="$v"_"$b"x_"$p""N_fbp"; #file prefix
+grep -n -m1 CHROM "$fn".vcf; #CHROM is on l2432, so genotypes start on l2433
+
+#verify all rows have same number of columns
+grep -A1000000000 CHROM "$fn".vcf | awk -F$'\t' '{print NF}' | sort | uniq -c; #returns 244846 206, so all rows have same column number
+
+#count total number of loci and contigs
+tail -n +2433 "$fn".vcf | wc -l; #244845 loci called
+tail -n +2433 "$fn".vcf | cut -d$'\t' -f1 | sort -u | wc -l; #83 contigs
 
 
-^^^edited to here
 
 #genotypes are in column 10 thru end of line. count #loci with no missing data
-grep -m1 CHROM "$fn".vcf | cut -d$'\t' -f10- | tr '\t' '\n' | wc -l; #there are 122 samples to start
-time tail -n+3260 "$fn".vcf | cut -d$'\t' -f8 | cut -d';' -f18 | grep 'NS=122' | wc -l; #field NS=number of samples with data, 5 min, 5247 loci have no missing data, not enough
-
-#figure out how to remove non H. pusillum species from the vcf
-c=$(grep -m1 CHROM "$fn".vcf | tr '\t' '\n' | nl -nln); #find column number of sample name
-b="	int
-euc
-chilense
-brachy
-muticum
-erectifolium
-steno";
-d=$(grep -v -f <(echo "$b") <(echo "$c") | cut -d' ' -f1 | tr '\n' ',' | sed 's/,$//'); #get all columns to keep
-
-head -3258 "$fn".vcf > "$fn"_pus.vcf; #get a header for the vcf file that will only contain pusillum samples
-
-time grep -A1000000000 CHROM "$fn".vcf | cut -d$'\t' -f"$d" >> "$fn"_pus.vcf; #8.5min, keep only pusillum columns
-grep -m1 CHROM "$fn"_pus.vcf | tr '\t' '\n' | nl -nln; #inspect to verify correct removal
-grep -A1000000000 CHROM "$fn"_pus.vcf | awk -F$'\t' '{print NF}' | sort | uniq -c; #returns 32292076 115, so all rows have same column number
+grep -m1 CHROM "$fn".vcf | cut -d$'\t' -f10- | tr '\t' '\n' | wc -l; #there are 197 samples to start
+time tail -n+2433 "$fn".vcf | cut -d$'\t' -f8 | cut -d';' -f18 | grep 'NS=197' | wc -l; #field NS=number of samples with data, 9s, 55631 loci have no missing data
 
 
-#count #loci with no missing data when only H. pusillum samples are included
-fn="OKref_122x_24N_fbp"; #file prefix
-v="$fn"_pus; export v;
-grep -n -m1 CHROM "$v".vcf; #CHROM is on l3259, so genotypes start on l3260
-grep -m1 CHROM "$v".vcf | cut -d$'\t' -f10- | tr '\t' '\n' | wc -l; #there are 106 samples of H. pusillum
-#time tail -n+3260 "$v".vcf | head | cut -d$'\t' -f8 | cut -d';' -f18 | grep 'NS=71 | wc -l; #field NS=number of samples with data, this method doesn't work because NS was calculated with 86 samples
+#create a list of number of missing data points per locus
+v="$fn";
+time grep -A10000000000 CHROM "$v".vcf | tail -n+2 | cut -d$'\t' -f10- | awk -F'.' '{print NF-1}' | nl -nln > lmiss.txt; #1:20 min,show number of missing calls per locus
+awk -F$'\t' '$2==0{print $0}' lmiss.txt | wc -l; 55631 loci with no missing data
 
-time grep -A10000000000 CHROM "$v".vcf | tail -n+2 | cut -d$'\t' -f10- | awk -F'.' '{print NF-1}' | nl -nln > lmiss.txt; #35 min,show number of missing calls per locus
-awk -F$'\t' '$2==0{print $0}' lmiss.txt | wc -l; #10949 loci with no missing data
+#extract just the variant lines from the vcf, so line numbering is the same as in "$v"0missindex.txt
+time sed '0,/^#CHROM/d' "$v".vcf > pusvariantsonly.txt; #5s
+
+#get a distribution of missingness, inspect the distribution with excel --> allow 5% missing samples ~= 10 samples
+for i in {1..197};
+  do echo -n "$i ";
+    awk -F$'\t' -v i=$i '$2==i{print $1}' lmiss.txt | wc -l;
+  done;
 
 
 #collect all loci with no missing data in a pseudo vcf file
-time awk -F$'\t' '$2==0{print $1}' lmiss.txt > "$v"0missindex.txt; #get the line number of the variant with no missing data, 7s
-wc -l "$v"0missindex.txt; #10949 loci with no missing samples
+time awk -F$'\t' '$2==0{print $1}' lmiss.txt > "$v"0missindex.txt; #get the line number of the variant with no missing data, 0s
+wc -l "$v"0missindex.txt; #55631 loci with no missing samples
 
-#extract just the variant lines from the vcf, so line numbering is the same as in "$v"0missindex.txt
-time sed '0,/^#CHROM/d' "$v".vcf > pusvariantsonly.txt; #8.5 min
+#collect all loci with <=10 missing samples per locus in a pseudo vcf file (~5% missing)
+time awk -F$'\t' '$2<=10{print $1}' lmiss.txt > "$v"5missindex.txt; #get the line number of the variant with 5% missing data, 0s
+wc -l "$v"5missindex.txt; #84214 loci with no missing samples
 
 
 #use pure awk to extract variant loci only, going through the file only once, you want to do this on the login node not an interactive node (too slow)
-time awk 'NR==FNR{ a[$1]; m=$1; next } FNR in a{print; if (FNR==m) exit}' "$v"0missindex.txt pusvariantsonly.txt > "$v"0miss.vcf; #4 min
-
+time awk 'NR==FNR{ a[$1]; m=$1; next } FNR in a{print; if (FNR==m) exit}' "$v"0missindex.txt pusvariantsonly.txt > "$v"0miss.vcf; #7 s
+time awk 'NR==FNR{ a[$1]; m=$1; next } FNR in a{print; if (FNR==m) exit}' "$v"5missindex.txt pusvariantsonly.txt > "$v"5miss.vcf; #5 s
 
 
 #filter to include only variant quality >= 30
 time awk -F$'\t' '$6>=30{print $0}' "$v"0miss.vcf > "$v"0missQ30.vcf; #2 sec
-wc -l "$v"0missQ30.vcf; #8667 0missQ30 loci
+wc -l "$v"0missQ30.vcf; #49378 0missQ30 loci
+time awk -F$'\t' '$6>=30{print $0}' "$v"5miss.vcf > "$v"5missQ30.vcf; #2 sec
+wc -l "$v"5missQ30.vcf; #71053 0missQ30 loci
 
-#find minimum depth of 0miss Q30 loci
-cut -d';' -f8 "$v"0missQ30.vcf | sed 's/DP=//' | sort -n | head; #it's 316 so > 1 read per sample, don't bother filtering by it
 
-#if there were 10E5+ loci remaining, you could subsample say 10K of them for m+
+#find minimum depth of Q30 loci
+cut -d';' -f8 "$v"0missQ30.vcf | sed 's/DP=//' | sort -n | head; #it's 1067 so > 1 read per sample, don't bother filtering by it (1067/197=5.4 reads per sample)
+cut -d';' -f8 "$v"5missQ30.vcf | sed 's/DP=//' | sort -n | head; #it's 579 so > 1 read per sample, don't bother filtering by it (579/197=2.9 reads per sample)
+
+#Subsample 10K loci for M+ from the 0% missing data set
 #you can probably use a simple shuf for this since vcf has loci in rows
-#time shuf "$v"0missQ30.vcf | head -10000 | sort > "$v"0missQ30_10K.vcf; #2s
-#time shuf "$v"0missQ30.vcf | head -50000 | sort > "$v"0missQ30_50K.vcf; #4s
+time shuf "$v"0missQ30.vcf | head -10000 | sort > "$v"0missQ30_10K.vcf; #4s
+#time shuf "$v"0missQ30.vcf | head -50000 | sort > "$v"0missQ30_50K.vcf; #7s
 
-#add back headers to 0missQ30.vcf files
+#Subsample 10K loci for M+ from the 5% missing data set
+#you can probably use a simple shuf for this since vcf has loci in rows
+time shuf "$v"5missQ30.vcf | head -10000 | sort > "$v"5missQ30_10K.vcf; #4s
+#time shuf "$v"5missQ30.vcf | head -50000 | sort > "$v"5missQ30_50K.vcf; #7s
+
+
+mx=0; #missing data percentage
+export mx;
+
+#add back headers to "$mx"missQ30.vcf files
 grep -m1 CHROM "$v".vcf > tmp.vcf;
-cat OKref_122x_24N_fbp_pus0missQ30.vcf >> tmp.vcf;
-mv tmp.vcf "$v"0missQ30_9K.vcf;
+cat "$v""$mx"missQ30_10K.vcf >> tmp.vcf;
+mv tmp.vcf "$v""$mx"missQ30_10K.vcf;
 
 
 #create m+ .dat file from vcf
-t=$(head -1 "$v"0missQ30_9K.vcf | cut -d$'\t' -f10- | tr '\t' '\n'); #get sample names
+t=$(head -1 "$v""$mx"missQ30_10K.vcf | cut -d$'\t' -f10- | tr '\t' '\n'); #get sample names
 #column with the number 1, nsamples times
 j=$(for i in $(seq 1 1 $(echo "$t" | wc -l | xargs));
         do echo 1;
         done;)
 rh=$(paste -d$'\t' <(echo "$t") <(echo "$j"));  #row header
-#the $rh looks like "Tecolotito	1" with tab delimit    
+#$rh looks like "SRR12806885	1" with tab delimit    
+
+
+
+
 
 #the .dat file data matrix for polyploids is just a space delimited list of the alleles at the locus
-#in this case all loci are 50N due to poolseq of 12 diploid individuals
+#in this case all loci are treated as 50N due to poolseq of 25 diploid individuals, with the
+#exception of Bvm64 which had 86 individuals but is still treated as 50N
 
 #clean up the matrix
-cut -d$'\t' -f10- "$v"0missQ30_9K.vcf | tr '\t' ' ' > mat.tmp
-seq -w 1 1 $(head -1 mat.tmp | awk -F' ' '{print NF}') | parallel 'cut -d" " -f{} mat.tmp | sed s/:.*$// > c{}.tmp'; #remove : delimited info in each genotype
-paste -d$'\t' c*.tmp > mat1.tmp; #reconstruct matrix with tab delimit
+cut -d$'\t' -f10- "$v""$mx"missQ30_10K.vcf | tr '\t' ' ' > "$mx"mat.tmp
+
+#make a line for missing data
+miss="";
+for i in {1..50};
+  do miss+=9999/;
+  done;
+miss=$(echo "$miss" | sed 's:/$::');
+export miss;
+
+time seq -w 1 1 $(head -1 "$mx"mat.tmp | awk -F' ' '{print NF}') | parallel --jobs=1 'echo {}; cut -d" " -f{} "$mx"mat.tmp | sed s/:.*$// | sed "s:^\.$:$miss:" > "$mx"c{}.tmp'; #2min, remove : delimited info in each genotype, substitute replacement string for missing data code '.'
+
+#test that tmp files have consistent numbers of characters (should be 50 across all loci)
+for i in "$mx"c*.tmp;
+  do echo -n "$i "
+    tail -n +2 "$i" | awk -F'/' '{print NF}' | uniq;
+  done;
+
+paste -d$'\t' "$mx"c*.tmp > "$mx"mat1.tmp; #reconstruct matrix with tab delimit
 
 
-#rotate mat1.tmp, result is space delimited
+
+
+#rotate "$mx"mat1.tmp, result is space delimited
 awk '
 {
 for (i=1; i<=NF; i++)  {
@@ -117,169 +140,350 @@ END {
         }
         print str
     }
-}' < mat1.tmp > rot.tmp;
+}' < "$mx"mat1.tmp > "$mx"rot.tmp;
 
-cat rot.tmp | tr ' ' '\t' > rot1.tmp; #tab delimit matrix so loci are tab separated
-paste -d$'\t' <(echo "$rh") rot1.tmp | tr '/' ' ' > 9K.dat; #combine, space delimit alleles within tab delimited loci
 
-#clean up
-rm *.tmp
+cat "$mx"rot.tmp | tr ' ' '\t' > "$mx"rot1.tmp; #tab delimit matrix so loci are tab separated
+paste -d$'\t' <(echo "$rh") "$mx"rot1.tmp | tr '/' ' ' > 10K"$mx"miss.tmp; #combine, space delimit alleles within tab delimited loci
+
+
+
+
+#rename SRRs using PIs
+#to label by PI_type_program use '{print $3"_"$2"_"$5}'
+iff=10K"$mx"miss; #input file name prefix
+b=$(cut -d$'\t' -f1 "$iff".tmp); #sample names from original file
+c=$(cut -d$'\t' -f1-3 "$iff".tmp); #row headers
+for i in $b;
+  do echo "$i";
+    j=$(grep ^$i$'\t' renamer.txt | awk -F$'\t' '{print $3"_"$2"_"$5}' | sed 's/ //g' | sed 's/-//g'); #new name
+    c1=$(echo "$c" | sed 's/'$i'/'$j'/g');
+    c="$c1";
+ done;
+
+
+#paste renamed row header and data matrix into new file, sort by type/program/PI to complete .dat file
+paste -d$'\t' <(echo "$c") <(cut -d$'\t' -f4- "$iff".tmp) | sort -t_ -k2,2 -k3,3 -k1,1 > "$iff".dat; 
+
+
+#figure out how many character states there are per locus (binary SNPs vs multistate characters)
+#make a line for missing data
+m="";
+for i in {1..50};
+  do m+=x/;
+  done;
+m=$(echo "$m" | sed 's:/$::');
+export m;
+
+#field count, confirm that you find 9850=197*50 fields for each line
+time cut -d$'\t' -f10- "$v""$mx"missQ30_10K.vcf | tail -n+2 | sed "s:\.\t:$m/:g" | sed 's;:[^\t]*\t;/;g' | sed 's/\t//g' | sed 's/:.*$//' | sed "s:\.$:$m:" | awk -F'/' '{print NF}' | sort | uniq -c; #11s, there should be 9850 (50*197) characters for all loci
+
+
+
+#count max number of alleles
+#below command is like:
+#cut variant calls | remove header | insert missing data string | remove after : | remove tabs | remove after : for last column | insert missing data string for last column | add line numbers | clean up nl breaks > save
+time cut -d$'\t' -f10- "$v""$mx"missQ30_10K.vcf | tail -n+2 | sed "s:\.\t:$m/:g" | sed 's;:[^\t]*\t;/;g' | sed 's/\t//g' | sed 's/:.*$//' | sed "s:\.$:$m:" | nl -nln | sed 's/ //g' > "$mx"allelestates.txt; #5s, /-delimited list of allelic states for each of 10K loci
+>"$mx"maxallelecount.txt;
+time while read ll;
+  do ln=$(echo "$ll" | cut -d$'\t' -f1); #locus number
+    ac=$(echo "$ll" | cut -d$'\t' -f2 | tr '/' '\n' | sort -nr | head -1); #max allele count
+    echo "$ln $ac" >> "$mx"maxallelecount.txt;
+    echo "$ln";
+  done < "$mx"allelestates.txt; #4:45 min
+
+cut -d' ' -f2 "$mx"maxallelecount.txt | sort -n | uniq -c; #show highest numbered allele, recall that 0 is also an allele so the total number of alleles is the below count + 1
+			  5% missing
+			  1 x  =0/x only (ref/missing only)
+		   4855 1  =binary SNP
+		   1005 2  =3 allele locus
+		   4139 3  =4 allele locus
+		   
+		     0% missing
+			  2 0  1 state
+		   4662 1  binary
+		   1106 2  3 state
+		   4230 3  4 state
+		     
+
+#calculate missing data per locus
+>"$mx"missingcount.txt;
+time while read ll;
+  do ln=$(echo "$ll" | cut -d$'\t' -f1); #locus number
+    ac=$(echo "$ll" | cut -d$'\t' -f2 | tr '/' '\n' | grep x | wc -l); #num missing calls
+    echo "$ln $ac" >> "$mx"missingcount.txt;
+    echo "$ln";
+  done < "$mx"allelestates.txt; #3:10 min
+
+cut -d' ' -f2 "$mx"missingcount.txt | sort -n | uniq -c; #divide by 50 to get number of missing samples per locus
+		5% missing
+		num loci		missing samples
+		   6974 0		0
+			685 50		1
+			470 100		2
+			304 150		3
+			294 200		4
+			228 250		5
+			235 300		6
+			210 350		7
+			204 400		8
+			205 450		9
+			191 500		10
+		
+		0% missing
+		 10000 0
+
+
+
 
 #create m+ .var file
 h=$(echo 'code 0    
 individu 0    
 Sample 1 0 0 1 5' | tr ' ' '\t');
 
-#create the 50N polyploid coding for 9K+ loci
-ln=$(cut -d$'\t' -f1-2 "$v"0missQ30_9K.vcf | tail -n+2 | tr '\t' '.'); #locus names
+#create the 50N polyploid coding for 10K loci
+ln=$(cut -d$'\t' -f1-2 "$v""$mx"missQ30_10K.vcf | tail -n+2 | tr '\t' '.'); #locus names
 key=$(echo " 2 1 0 1 5" | tr ' ' '\t'); #specify that loci are reference and not target loci
-ln24=$(for i in $ln;
-         do for j in {1..24};
+ln50=$(for i in $ln;
+         do for j in {1..50};
               do echo "$i""$key";
               done;
          done;)
 
 #finalize the var file
-echo "$h" > 9K.var;
-echo "$ln24" >> 9K.var;
+echo "$h" > 10K"$mx"miss.var;
+echo "$ln50" >> 10K"$mx"miss.var;
 
-mkdir ../../m+;
-mkdir ../../m+/9K;
-mv 9K.* ../../m+/9K;
-cd /90daydata/patellifolia/Hpusillum/WGS/SkimSeq/m+/9K;
-
-#make a .ker file to ensure inclusion of the NPGS accessions in the core
-echo "Corner-Camp-BASEsub
-resub-AZpoolsub
-KYNPGS
-ALNPGS
-OKNPGS
-resub-CO-Poolsub
-W642830sub" > 9K.ker;
+#calculate the number of contigs contributing variants
+cut -d$'\t' -f1 10K"$mx"miss.var | tail -n+4 | cut -d'.' -f1 | sort | uniq -c; #5%, 81 contigs; 0%, 81 contigs
 
 
-#move data to compute-0-12
-cd /Volumes/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample/m+; #on NAS/mini
-rsync -aP pat.reeves@ceres.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/m+/9K*" .;
-cd /scratch/reevesp/Hpusillum/WGS/SkimSeq/m+; #compute-0-12
-rsync -aP botch@10.177.9.246:"/Volumes/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/122sample/m+/9K" .;
-
-
-
-#run m+mpi on compute-0-12
-p="9K"; #file prefix
-cd /scratch/reevesp/Hpusillum/WGS/SkimSeq/m+/9K;
-time mpirun -np 5 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p".ker -m 7 9 1 1 "$p"out.tmp; #test, 2 min
-
-#including W642830
-time mpirun -np 36 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p".ker -m 7 106 1 10 "$p"out.txt; #scan, 181 min compute-0-12
-
-
-##koontz pipeline##
-#begin M+ searches with <10Kbp data
-ssh compute-0-12;
-cd /scratch/reevesp/AustinKoontz/m+;
-rsync -aP botch@10.177.9.246:"/Volumes/Public/Data/PatReeves/AustinKoontz/Datasets/M_guttatus/m+/run2" .;
-
-#there are 255 individuals and 1498 loci
-cd run2;
-time mpirun -np 56 m+ mguttnative_10K_hxout_1.1.b1.var mguttnative_10K_hxout_1.1.b1.dat -m 2 255 5 1 ./mgnativeout1.txt; #12 min, test input, estimate convergence on 90%
-
-#test run says inspect r=17-25 to zero in on 90% capture
-(time mpirun -np 56 m+ mguttnative_10K_hxout_1.1.b1.var mguttnative_10K_hxout_1.1.b1.dat -m 17 25 1 6 ./mgnativeout2.txt) > log2.txt; #1.5 min, zero in on 90%
-
-#looks like 21 or 22 should do it, get 100 reps of each
-(time mpirun -np 56 m+ mguttnative_10K_hxout_1.1.b1.var mguttnative_10K_hxout_1.1.b1.dat -m 21 22 1 100 ./mgnativeout3.txt) > log3.txt; #5 min
-
-#return results to NAS
-rsync -aP /scratch/reevesp/AustinKoontz/m+/run2 botch@10.177.9.246:"/Volumes/Public/Data/PatReeves/AustinKoontz/Datasets/M_guttatus/m+";
-##end koontz pipeline##
-
-
-time mpirun -np 36 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p".ker -m 20 36 1 10 "$p"out.r10.txt; #focus on 90-95% retention, 63 min ceres
-time mpirun -np 56 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p".ker -m 22 36 14 100 "$p"out.r100.txt; #focus on 90 and 95% retention, 86 min ceres
-#stats
-for i in 36;
-  do echo "$i";
-    grep ^"$i"$'\t' "$p"out.r100.txt | awk -F$'\t' '{print $10}' | sed 's/[()]//g' | tr ',' '\n' | sort | uniq -c \
-         | sed 's/^ *//g' | awk -F' ' '$1==100{print $2}' > "$p"out.R"$i".ker; #there are 28 pops that occur in all 100 reps from R=36
-  done;
-time mpirun -np 2 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p"out.R"$i".ker -m 28 28 1 1 "$p"out.R"$i".txt; #focus on 90 and 95% retention, 15 min ceres
-
-
-#with W642830 in kernel
-time mpirun -np 36 ~/bin/MplusMPI/m+ "$p".var "$p".dat -k "$p".ker -m 6 30 1 4 "$p"TXkerout.txt; #scan, x min ceres
-
-
-#try Astar including W642830
-cd /90daydata/patellifolia/Hpusillum/WGS/SkimSeq/m+/9K;
-sshort72;
-p="9K";
-(time mpirun -np 1 ~/bin/MplusMPI/m+ "$p".var "$p".dat -a "$p".txt) > "$p"Astarlog.txt; #24 min ceres
-
-
-
-
-
-
-
-#do an M+ search with the kernel 6, plus 5 possible bulk collection sites
-sshort72;
-p="36K";
-s="ALNPGS Corner-Camp-BASEsub KYNPGS W642830sub resub-AZpoolsub resub-CO-Poolsub BRODUS-BASEsub BlackCreekLake Comanchesub Counselor ValleyView"; #samples to use
->"$p"11s.ker;
-for i in $s;
-  do echo "$i" >> "$p"11s.ker;
-  done;  
-time ~/bin/Mplus/m+1 "$p".var "$p".dat -k "$p"11s.ker -m 11 11 1 1 "$p"11sout.txt; #scan, 12 min ceres
-
-
-#do an M+ search with the kernel 6, plus 3 high priority bulk collection sites
-sshort72;
-p="36K";
-s="ALNPGS Corner-Camp-BASEsub KYNPGS W642830sub resub-AZpoolsub resub-CO-Poolsub BlackCreekLake Comanchesub ValleyView"; #samples to use
->"$p"9s.ker;
-for i in $s;
-  do echo "$i" >> "$p"9s.ker;
-  done;  
-time ~/bin/Mplus/m+1 "$p".var "$p".dat -k "$p"9s.ker -m 9 9 1 1 "$p"9sout.txt; #scan, 12 min ceres
-
-
-#do an M+ search with the kernel 6, plus 2 highest priority bulk collection sites
-sshort72;
-p="36K";
-s="ALNPGS Corner-Camp-BASEsub KYNPGS W642830sub resub-AZpoolsub resub-CO-Poolsub Comanchesub ValleyView"; #samples to use
->"$p"8s.ker;
-for i in $s;
-  do echo "$i" >> "$p"8s.ker;
-  done;  
-time ~/bin/Mplus/m+1 "$p".var "$p".dat -k "$p"8s.ker -m 8 8 1 1 "$p"8sout.txt; #scan, 12 min ceres
-
-
-
-#report: at the level of the SNP, not the haplotype, each new high priority population offers ~1% increase in the number of alleles in the collection
-		#kersize	%rec	allelecount
-		6			0.741	50990 #NPGS collections minus AZ minus proper pool sampling of OK
-		8			0.773	53679 #plus Comanche and ValleyView
-		9			0.784	54689 #plus Comanche, ValleyView, and BlackCreekLake
-		11			0.798	55944 #plus $s, above
-
-
-
-
-
-
+#make a .ker file with everything except Bvm64
+cut -d$'\t' -f1 10K"$mx"miss.dat | grep -v Bvm64_wild_na > 10K"$mx"missnoBvm64.ker;
 
 
 #clean up
-rm *.tmp;
-rm "$p"out.txt;
-rm "$p"noW6TXout.txt;
+rm *.tmp
+
+
+
+#on mini
+cd /Volumes/Public/Data/PatReeves/telework/ChrisRichards/Bm64/M+/forMS/10K;
+rsync -aP pat.reeves@atlas-login.hpc.msstate.edu:"/90daydata/patellifolia/MitchSeq/vcfxPI540631/vcfxPI540631completecombined/10K0miss*" .;
+
+
+#move data to vbs then to compute-0-12, then
+#run m+mpi on compute-0-12
+p="10K0miss"; #file prefix
+cd /scratch/reevesp/maritima/m+/10K/0miss;
+time mpirun -np 4 ~/bin/MplusMPI/m+ "$p".var "$p".dat -m 7 9 1 1 "$p"out.tmp; #test, 5 min
+
+
+#there are 197 samples and 10K loci
+time mpirun -np 56 m+ "$p".var "$p".dat -m 2 10 1 1 ./"$p"out1.txt; #5%, 80 min, estimate convergence on 90%
+
+#5% test run says inspect r=7-10 to zero in on 90% capture
+#0% test run says inspect r=6-8 to zero in on 90% capture
+(time mpirun -np 40 m+ "$p".var "$p".dat -m 6 8 1 10 ./"$p"out2.txt) > "$p"log2.txt; #21 min, zero in on 90%
+
+#5%, looks like 9 or 10 should do 90%, get 100 reps of each
+#0%, looks like 7 could do 90%, 8 definitely will
+(time mpirun -np 56 m+ "$p".var "$p".dat -m 9 10 1 100 ./"$p"out3.txt) > "$p"log3.txt; #24 min, 10 acc required for 90% capture for 5% missing data set
+(time mpirun -np 40 m+ "$p".var "$p".dat -m 7 7 1 117 ./"$p"out3.txt) > "$p"log3.txt; #18 min, r=7 fails to return 90%
+(time mpirun -np 40 m+ "$p".var "$p".dat -m 8 8 1 100 ./"$p"out9.txt) > "$p"log9.txt; #20 min, 8 acc required for 90% capture for 0% missing data set, gather distribution
+			M+ 26714, best 8 acc M+ subset (better than A*)
+			Bvm64_wild_na
+			EL57rhizoctoniaresistant_sugar_MI
+			PI586688_wild_CA
+			PI590661_sugar_CO
+			PI671963_sugar_CO
+			ShirazTallTop_table_na
+			VerdeDeTaglio_leaf_na
+			Zentuar_fodder_na
+
+
+#5%, look for 100% capture, 162 will definitely do it, try 160-161
+(time mpirun -np 56 m+ "$p".var "$p".dat -m 160 161 1 100 ./"$p"out4.txt) > "$p"log4.txt; #6hrs, x acc required for 100% capture
+#0%, look for 100% capture
+(time mpirun -np 56 m+ "$p".var "$p".dat -m 2 197 2 1 ./"$p"out6.txt) > "$p"log6.txt; #2.25hrs, x acc required for 100% capture
+(time mpirun -np 56 m+ "$p".var "$p".dat -m 151 152 1 100 ./"$p"out7.txt) > "$p"log7.txt; #try 151-2, A* found 152, 6hrs, M+ finds 151 acc required for 100% capture
+(time mpirun -np 56 m+ "$p".var "$p".dat -m 151 151 1 500 ./"$p"out10.txt) > "$p"log10.txt; #151 only, xhrs, 15 hrs
+(time mpirun -np 40 m+ "$p".var "$p".dat -m 151 151 1 500 ./"$p"out10a.txt) > "$p"log10a.txt; #151 only, xhrs, on compute-0-9, 15.7 hrs
+tail -n+2 "$p"out10a.txt >> "$p"out10.txt; #combine output
+
+#find redundant accessions in 100% subsets
+ra=$(awk -F$'\t' '$1==151 && $3==1{print $0}' "$p"out10.txt | cut -d$'\t' -f3,7,10 | sort -t$'\t' -k3,3); #get subsets that contain 100% of variation, 86 were found
+(while read ll;
+  do echo "$ll" | cut -d$'\t' -f3 | md5sum;
+  done <<< "$ra";) | sort | uniq -c | sed 's/^ *//' | sort -t' ' -k1,1nr | less; #find unique subsets, 3 subsets occurred twice, remaining 80 only once
+
+af=$(echo "$ra" | cut -d$'\t' -f3 | sed 's/[\(\)]//g' | tr ',' '\n' | sort | uniq -c | sed 's/^ *//g' | sort -t' ' -k1,1nr); #inspect accession frequency for mandatory acc
+echo "$af" | grep ^86" " | wc -l; #138 acc are mandatory, i.e. occur in all 100% subsets
+echo "$af" | grep -v ^86" " | wc -l; #29 acc are optional depending on other members of the 100% subset
+
+# 138+29=167, which means that 197-167=30 accessions were never included and so can be called redundant
+b=$(cut -d$'\t' -f1 "$p".dat | sort); #all samples
+mo=$(echo "$af" | cut -d' ' -f2 | sort); #mandatory + optional samples
+comm -3 <(echo "$b") <(echo "$mo") | sort -t_ -k3,3 | sed 's/_.*$//' | sed 's/^PI/PI /' | sed 's/^EL/EL-/' | sed 's/^NSL/NSL /' | sed 's/00002/-00002/' | sed 's/00005/-00005/' | sort | tr '\n' ',' | sed 's/,/, /g';
+			#30 redundant accessions
+			EL-A12-00002, EL-A15-00005, NSL 142025, PI 515964, PI 552533, PI 590580, PI 590656, PI 590695, PI 590766, PI 590845, PI 598076, PI 599668, PI 607898, PI 610317, PI 628755, PI 628756, PI 632750, PI 636340, PI 640420, PI 651016, PI 652892, PI 658059, PI 658062, PI 663211, PI 663215, PI 664921, PI 665054, PI 672570, PI 674103, PI 683515
+
+
+
+#create an array of .ker files to explore which accession has the greatest number of unique alleles
+cd /scratch/reevesp/maritima/m+/10K/0miss;
+p="10K0miss"; export p;
+mkdir uniqueness;
+cd uniqueness; 
+cp ../"$p".dat .;
+cp ../"$p".var .;
+
+mypp() {
+        i=$1;
+        cut -d$'\t' -f1 "$p".dat | grep -v "$i" > "$p"no"$i".ker; #make ker file missing one acc
+        (time mpirun -np 3 m+ "$p".var "$p".dat -m 196 197 1 1 ./"$p"out"$i".txt -k "$p"no"$i".ker) > log"$p"_"$i".txt;
+}
+export -f mypp;
+
+b=$(cut -d$'\t' -f1 "$p".dat);
+time echo "$b" | parallel --jobs 13 --env mypp mypp; #212min
+
+#analyze uniqueness
+(for i in $b;
+  do s=$(cut -d$'\t' -f7 "$p"out"$i".txt | tail -2 | tr '\n' ' ' | awk -F' ' '{print $2"-"$1}');
+    t=$(echo "$s" | bc); #number of unique alleles
+    echo "$i $t";
+  done;) | sort -t' ' -k2,2nr > uniqueness.txt;
+
+
+
+#try Astar
+cd /scratch/reevesp/maritima/m+/10K;
+p="10K0miss";
+(time mpirun -np 1 ~/bin/MplusMPI/m+ "$p".var "$p".dat -a "$p".Astar.txt) > "$p"Astarlog.txt; #10 hrs compute-0-9
+tail -200 10KAstarlog.txt | less; #5%, inspect, Bvm64 is richest, contains 19681/29196 alleles = 67.4%
+                                  #0%, inspect, Bvm64 is richest, contains 20665/29478 alleles = 70.1%
+            8 accessions required to capture 90% of allelic diversity
+			Adding accession: Bvm64_wild_na  Current core size: 1  Alleles captured: 20665/29478  Elapsed time: 311s/311s
+			Adding accession: PI590661_sugar_CO  Current core size: 2  Alleles captured: 23856/29478  Elapsed time: 202s/513s
+			Adding accession: VerdeDeTaglio_leaf_na  Current core size: 3  Alleles captured: 24761/29478  Elapsed time: 263s/776s
+			Adding accession: Zentuar_fodder_na  Current core size: 4  Alleles captured: 25316/29478  Elapsed time: 255s/1031s
+			Adding accession: ELA024967_sugar_MI  Current core size: 5  Alleles captured: 25747/29478  Elapsed time: 248s/1279s
+			Adding accession: ShirazTallTop_table_na  Current core size: 6  Alleles captured: 26086/29478  Elapsed time: 242s/1521s
+			Adding accession: PI671963_sugar_CO  Current core size: 7  Alleles captured: 26394/29478  Elapsed time: 249s/1770s
+			Adding accession: PI586688_wild_CA  Current core size: 8  Alleles captured: 26667/29478  Elapsed time: 260s/2030s
+
+
+
+
+
+#prepare and process sugar beet only data set
+#hybrid or mislabeled 'sugar' accessions:
+			PI564243
+			PI586688
+			PI687276
+			PI655307
+			PI655308
+			PI655305
+			PI654357
+			Ames3051
+			PI590659
+cd /scratch/reevesp/maritima/m+/10K/0miss;
+p="10K0miss";
+v="10Ksugar";
+grep _sugar_ "$p".dat | grep -v PI564243 | grep -v PI586688 | grep -v PI687276 | grep -v PI655307 | grep -v PI655308 | grep -v PI655305 | grep -v PI654357 | grep -v Ames3051 | grep -v PI590659 > "$v".dat;
+wc -l "$v".dat; #158 sugar accessions
+
+mkdir sugar;
+mv "$v".dat sugar;
+cp "$p".var sugar/"$v".var;
+cd sugar;
+
+#look for 90% and 100% capture
+p="10Ksugar";
+time mpirun -np 56 ~/bin/MplusMPI/m+ "$p".var "$p".dat -m 2 158 3 1 "$p"out.tmp; #test, 52 min
+
+#zero in on 90%
+(time mpirun -np 56 m+ "$p".var "$p".dat -m 13 14 1 100 ./"$p"out1.txt) > "$p"log1.txt; # 30 min, it takes 15
+(time mpirun -np 56 m+ "$p".var "$p".dat -m 15 15 1 1000 ./"$p"out1.txt) > "$p"log1.txt; # 72 min, 
+
+#zero in on 100%
+(time mpirun -np 20 m+ "$p".var "$p".dat -m 152 154 1 100 ./"$p"out2.txt) > "$p"log2.txt; # 99 min, it takes 154
+
+
+#find redundant accessions in 100% subsets
+ra=$(awk -F$'\t' '$1==154 && $3==1{print $0}' "$p"out2.txt | cut -d$'\t' -f3,7,10 | sort -t$'\t' -k3,3); #get subsets that contain 100% of variation, 97 were found
+(while read ll;
+  do echo "$ll" | cut -d$'\t' -f3 | md5sum;
+  done <<< "$ra";) | sort | uniq -c | sed 's/^ *//' | sort -t' ' -k1,1nr | less; #find unique subsets, all 97 100% subsets are identical
+
+af=$(echo "$ra" | cut -d$'\t' -f3 | sed 's/[\(\)]//g' | tr ',' '\n' | sort | uniq -c | sed 's/^ *//g' | sort -t' ' -k1,1nr); #inspect accession frequency for mandatory acc
+echo "$af" | grep ^97" " | wc -l; #154 acc are mandatory, i.e. occur in all 100% subsets
+echo "$af" | grep -v ^97" " | wc -l; #29 acc are optional depending on other members of the 100% subset
+
+# 158-154=4 accessions were never included and so can be called redundant
+b=$(cut -d$'\t' -f1 "$p".dat | sort); #all samples
+mo=$(echo "$af" | cut -d' ' -f2 | sort); #mandatory + optional samples
+comm -3 <(echo "$b") <(echo "$mo") | sort -t_ -k3,3 | sed 's/_.*$//' | sed 's/^PI/PI /' | sed 's/^EL/EL-/' | sed 's/^NSL/NSL /' | sed 's/00002/-00002/' | sed 's/00005/-00005/' | sort | tr '\n' ',' | sed 's/,/, /g';
+			#4 redundant accessions
+			PI 590656, PI 590764, PI 663215, PI 665054
+
+
+#create an array of .ker files to explore which accession has the greatest number of unique alleles
+cd /scratch/reevesp/maritima/m+/10K/0miss/sugar;
+p="10Ksugar"; export p;
+mkdir uniqueness;
+cd uniqueness; 
+cp ../"$p".dat .;
+cp ../"$p".var .;
+
+mypp() {
+        i=$1;
+        cut -d$'\t' -f1 "$p".dat | grep -v "$i" > "$p"no"$i".ker; #make ker file missing one acc
+        (time mpirun -np 3 m+ "$p".var "$p".dat -m 157 158 1 1 ./"$p"out"$i".txt -k "$p"no"$i".ker) > log"$p"_"$i".txt;
+}
+export -f mypp;
+
+b=$(cut -d$'\t' -f1 "$p".dat);
+time echo "$b" | parallel --jobs 13 --env mypp mypp; #2:12 hr, --jobs * 3 = ncpu
+
+#analyze uniqueness
+(for i in $b;
+  do s=$(cut -d$'\t' -f7 "$p"out"$i".txt | tail -2 | tr '\n' ' ' | awk -F' ' '{print $2"-"$1}');
+    t=$(echo "$s" | bc); #number of unique alleles
+    echo "$i $t";
+  done;) | sort -t' ' -k2,2nr > uniqueness.txt;
+
+
+
+#try Astar
+p="10Ksugar";
+(time mpirun -np 1 m+ "$p".var "$p".dat -a "$p".Astar.txt) > "$p"Astarlog.txt; #5.5 hrs compute-0-9
+tail -200 10KAstarlog.txt | less; #0%, inspect, PI590661_sugar_CO is richest, contains 16302/28429 alleles = 57.3%
+            15 accessions required to capture 90% of allelic diversity
+			Adding accession: PI590661_sugar_CO  Current core size: 1  Alleles captured: 16302/28429  Elapsed time: 206s/207s
+			Adding accession: ELA024967_sugar_MI  Current core size: 2  Alleles captured: 19449/28429  Elapsed time: 168s/375s
+			Adding accession: ELA029686_sugar_MI  Current core size: 3  Alleles captured: 20874/28429  Elapsed time: 162s/537s
+			Adding accession: PI671963_sugar_CO  Current core size: 4  Alleles captured: 21890/28429  Elapsed time: 160s/697s
+			Adding accession: EL57rhizoctoniaresistant_sugar_MI  Current core size: 5  Alleles captured: 22614/28429  Elapsed time: 156s/853s
+			Adding accession: PI593694_sugar_CA  Current core size: 6  Alleles captured: 23193/28429  Elapsed time: 174s/1027s
+			Adding accession: PI664921_sugar_MI  Current core size: 7  Alleles captured: 23672/28429  Elapsed time: 178s/1205s
+			Adding accession: PI583780_sugar_ND  Current core size: 8  Alleles captured: 24036/28429  Elapsed time: 169s/1374s
+			Adding accession: PI641927_sugar_MI  Current core size: 9  Alleles captured: 24351/28429  Elapsed time: 173s/1547s
+			Adding accession: PI664915_sugar_MI  Current core size: 10  Alleles captured: 24625/28429  Elapsed time: 158s/1705s
+			Adding accession: PI613165_sugar_CA  Current core size: 11  Alleles captured: 24870/28429  Elapsed time: 158s/1863s
+			Adding accession: PI628272_sugar_MI  Current core size: 12  Alleles captured: 25092/28429  Elapsed time: 162s/2025s
+			Adding accession: PI632750_sugar_MI  Current core size: 13  Alleles captured: 25301/28429  Elapsed time: 154s/2179s
+			Adding accession: PI590765_sugar_ND  Current core size: 14  Alleles captured: 25475/28429  Elapsed time: 156s/2335s
+			Adding accession: PI664916_sugar_MI  Current core size: 15  Alleles captured: 25637/28429  Elapsed time: 171s/2506s
+
+
 
 #return results to NAS
-cd /Volumes/Public/Data/PatReeves/Hordeumpusillum/WGS/SkimSeq/86sample/m+;
-rsync -aP pat.reeves@ceres-dtn.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/m+/*" .;
-rsync -aP pat.reeves@ceres-dtn.scinet.usda.gov:"/90daydata/patellifolia/Hpusillum/WGS/SkimSeq/m+/36KnoW6TX.dat" .;
+cd /Volumes/Public/Data/PatReeves/telework/ChrisRichards/Bm64/M+/forMS/10K;
+rsync -aP reevesp@10.177.9.240:"/home/reevesp/tmp/0miss" .;
+
+
 
 ### END SUBSET WITH >1E6bp CONTIGS ###
 
