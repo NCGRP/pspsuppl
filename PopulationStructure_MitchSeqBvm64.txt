@@ -174,9 +174,6 @@ ind=$(echo "$b" | cut -d' ' -f1 | tr '\n' ',' | sed 's/,$//');
 #write the data set with only sugar beets
 time cut -d' ' -f $ind  "$dm".renamedPROG.csv > "$dm".renamedPROG.sugaronly.csv; #2min, or 26 min
 
-^^^URHERE
-
-
 #on mini
 cd /Volumes/Public/Data/PatReeves/MitchSeq/GrenedalfToDAPC;
 p="ms197";
@@ -184,7 +181,6 @@ mc=2
 maf=0.95;
 nloci=50; # x thousand loci
 rsync -aP pat.reeves@atlas-login.hpc.msstate.edu:"/90daydata/patellifolia/MitchSeq/dapc/"$p"_nonan_mc"$mc"_maf"$maf"_*k.csv" .;
-
 
 ### END CALCULATE ALLELE FREQUENCIES USING GRENEDALF ###
 
@@ -309,11 +305,6 @@ repeat {
 }
 
 
-
-^^^URHERE
-
-
-
 #plot distribution of smallest reference allele frequencies in each locus
 minbylocus=apply(C2, 2, FUN = min) #get minimum value from each row
 w=hist(minbylocus,xlim=c(0,1),labels=TRUE)
@@ -339,19 +330,11 @@ Examination of trial runs suggests that dapc is an unstable procedure. 50K is cl
 some minor variation between randomly assembled datasets (but is generally much better).  Using n.da=2 (two discriminant functions)
 and scale=TRUE may stabilize things further a bit. 
  
-^^^LBNOTES, 6/27/25, uncovered a problem with 8 early samples of 100x 100n poolseq data. all but corner-camp come out as distinct clusters, they should be removed
-In general, dapc is delivering only exclusive assignments, with for example, for K=2, all individuals but one
-in a group, and for K =3, two individuals in their own distinct groups and everybody else in the third.
-This is undesirable and may be related to the non-continuous distribution of reference allele
-frequencies.
-
 Try to figure this out by looking at a simple pco plot.  Does it look as expected based
 on past analyses of diploid variant calls?
 
 7/16/25. Partially resolved this issue by setting scale=FALSE, as is the dapc default, and
-by eliminating loci with singleton reads. Still no indication of admixture, and the 8 100x
-100n samples still mostly pop out alone (Broadus and CornerCamp do not)
-
+by eliminating loci with singleton reads. Still no indication of admixture.
 
 
 
@@ -568,11 +551,9 @@ rm dapcpartition.tmp
 
 #paste dapcpartition.txt into Excel as a table
 
-^^^URHERE
-
-
-
 ### END PROCESS DAPC PARTITION ###
+
+
 
 
 
@@ -583,10 +564,10 @@ cd /Volumes/Public/Data/PatReeves/MitchSeq/GrenedalfToDAPC;
 v="ms197";
 mc=2;
 maf=0.95;
-nloci=5000; #x thousands of loci
+nloci=10000; #x thousands of loci (nloci=10000 translates to 10E6 allele frequencies)
 nsamp=197;
 
-dm="$p"."$nsamp"."$nloci"K;  #distance matrix file name prefix
+dm="$v"."$nsamp"."$nloci"K;  #distance matrix file name prefix
 mv "$dm".distmatrix.txt ../splitstree;
 
 #convert to NEXUS DISTANCES block
@@ -613,18 +594,19 @@ END;' >> "$dm".splitsin.txt;
 #rename samples
 #to label by program use '{print $1"_"$4}' or '{print $3"_"$5}'
 #to label by type use '{print $1"_"$2}'
+#to label by breedingline_location use '{print $6"_"$5}'
 
 b=$(grep -A100000 ^MATRIX "$dm".splitsin.txt | cut -d' ' -f2 | tail -n+2 | tac | tail -n+3 | tac | sed 's/'\''//g'); #sample names
 cp "$dm".splitsin.txt "$dm".splitsin.txt1;
 for i in $b;
   do echo "$i";
-    j=$(grep ^$i$'\t' renamer.txt | awk -F$'\t' '{print $3"_"$5}' | sed 's/ //g' | sed 's/-//g');
-    sed 's/'$i'/'$j'/' "$dm".splitsin.txt1 > "$dm".splitsin.txtTMP;
+    j=$(grep ^$i$'\t' renamer.txt | awk -F$'\t' '{print $6"_"$5}' | sed 's: ::g' | sed 's:-:.:g' | sed 's:_na::');
+    sed 's:'$i':'$j':' "$dm".splitsin.txt1 > "$dm".splitsin.txtTMP;
     mv "$dm".splitsin.txtTMP "$dm".splitsin.txt1;
  done;
  
 #clean up
-mv "$dm".splitsin.txt1 "$dm".splitsin.renamed.txt;
+mv "$dm".splitsin.txt1 "$dm".splitsin.renamedLINE.txt;
 
 
 
